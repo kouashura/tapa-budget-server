@@ -1,22 +1,37 @@
 require('dotenv').config();
-// server/index.js
 const express = require('express');
 const admin = require('firebase-admin');
+const fs = require('fs');
 const app = express();
 
-// Initialiser Firebase Admin
-// ✅ Sur Render, on utilise la variable d'environnement FIREBASE_SERVICE_ACCOUNT
-// En local, on utilise le fichier serviceAccountKey.json
+// ✅ Initialiser Firebase Admin
 let serviceAccount;
-if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-} else {
-  serviceAccount = require('./serviceAccountKey.json');
+try {
+  // 1. Essayer avec la variable d'environnement (si elle est bien formatée)
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  }
+  // 2. Sinon, essayer avec le Secret File de Render
+  else if (fs.existsSync('/etc/secrets/serviceAccountKey.json')) {
+    serviceAccount = require('/etc/secrets/serviceAccountKey.json');
+  }
+  // 3. Sinon, essayer avec le fichier local (pour le développement)
+  else if (fs.existsSync('./serviceAccountKey.json')) {
+    serviceAccount = require('./serviceAccountKey.json');
+  }
+  
+  if (!serviceAccount) {
+    throw new Error('Impossible de charger la clé Firebase');
+  }
+  
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+  console.log('✅ Firebase Admin initialisé');
+} catch (error) {
+  console.error('❌ Erreur Firebase Admin:', error.message);
+  process.exit(1);
 }
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
 
 app.use(express.json());
 
