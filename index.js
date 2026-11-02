@@ -1,28 +1,14 @@
 require('dotenv').config();
 const express = require('express');
 const admin = require('firebase-admin');
-const fs = require('fs');
 const app = express();
 
-// ✅ Initialiser Firebase Admin
 let serviceAccount;
 try {
-  // 1. Essayer avec la clé encodée en Base64 (recommandé pour Render)
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_B64) {
-    const decoded = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_B64, 'base64').toString('utf8');
-    serviceAccount = JSON.parse(decoded);
-  }
-  // 2. Sinon, essayer le Secret File
-  else if (fs.existsSync('/etc/secrets/serviceAccountKey.json')) {
-    serviceAccount = require('/etc/secrets/serviceAccountKey.json');
-  }
-  // 3. Sinon, fichier local
-  else if (fs.existsSync('./serviceAccountKey.json')) {
-    serviceAccount = require('./serviceAccountKey.json');
-  }
-
-  if (!serviceAccount) {
-    throw new Error('Impossible de charger la clé Firebase');
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  } else {
+    throw new Error('Variable FIREBASE_SERVICE_ACCOUNT manquante');
   }
 
   admin.initializeApp({
