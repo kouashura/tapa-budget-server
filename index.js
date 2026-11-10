@@ -6,18 +6,42 @@ const path = require('path');
 const app = express();
 
 let serviceAccount;
-try {
-  // Sur Render, le secret file est disponible à la racine du projet
-  const keyPath = path.join(__dirname, 'serviceAccountKey.json');
-  if (fs.existsSync(keyPath)) {
-    serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
-  } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    // Fallback pour le local
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  } else {
-    throw new Error('serviceAccountKey.json introuvable');
-  }
 
+// ✅ Chercher le fichier secret aux emplacements possibles sur Render
+const possiblePaths = [
+  path.join(__dirname, 'serviceAccountKey.json'), // Racine du projet sur Render
+  '/etc/secrets/serviceAccountKey.json',           // Secret File sur Render
+  path.join(process.cwd(), 'serviceAccountKey.json') // Fallback
+];
+
+for (const p of possiblePaths) {
+  if (fs.existsSync(p)) {
+    console.log('✅ Fichier Firebase trouvé:', p);
+    try {
+      serviceAccount = JSON.parse(fs.readFileSync(p, 'utf8'));
+      break;
+    } catch (e) {
+      console.error('❌ Erreur parsing du fichier', p, ':', e.message);
+    }
+  }
+}
+
+// Fallback : variable d'environnement (doit être le JSON COMPLET)
+if (!serviceAccount && process.env.FIREBASE_SERVICE_ACCOUNT) {
+  console.log('🔍 Tentative avec FIREBASE_SERVICE_ACCOUNT...');
+  try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  } catch (e) {
+    console.error('❌ FIREBASE_SERVICE_ACCOUNT n\'est pas un JSON valide. Vérifie qu\'il contient le fichier entier (pas juste la clé privée).');
+  }
+}
+
+if (!serviceAccount) {
+  console.error('❌❌❌ AUCUNE CLÉ FIREBASE VALIDE TROUVÉE ❌❌❌');
+  process.exit(1);
+}
+
+try {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
   });
