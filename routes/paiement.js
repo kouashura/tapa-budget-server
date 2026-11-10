@@ -4,7 +4,6 @@ const admin = require('firebase-admin');
 
 const db = admin.firestore();
 
-// ✅ Initialisation paresseuse (lazy) pour ne pas crasher au démarrage
 let dp = null;
 function getDigitalPaye() {
   if (dp) return dp;
@@ -13,7 +12,7 @@ function getDigitalPaye() {
   const secret = process.env.DP_SECRET;
   
   if (!publicKey || !secret) {
-    throw new Error('DigitalPaye: DP_PUBLIC_KEY et DP_SECRET doivent être configurés dans les variables d\'environnement de Render.');
+    throw new Error('DigitalPaye: DP_PUBLIC_KEY et DP_SECRET doivent être configurés.');
   }
   
   const DigitalPaye = require('digitalpaye-node');
@@ -30,9 +29,8 @@ router.post('/paiement/init', async (req, res) => {
     }
 
     const externalRef = `COLLECT_${userId}_${Date.now()}`;
-    const client = getDigitalPaye(); // Lève une erreur claire si les clés manquent
+    const client = getDigitalPaye();
 
-    // Utilisation de paymentLinks pour générer une URL de checkout
     const link = await client.paymentLinks.create({
       label: description || 'Rechargement TAPA Budget',
       amount: amount,
@@ -44,13 +42,16 @@ router.post('/paiement/init', async (req, res) => {
       url_error: 'https://tapa-budget-server.onrender.com/api/paiement/error'
     });
 
+    // ✅ Sécurisation : si link.data.reference est undefined, on utilise externalRef
+    const safeReference = link.data?.reference || link.data?.ref || externalRef;
+
     await db.collection('transactions').add({
       userId,
       amount,
       operator,
       phone,
       externalRef,
-      reference: link.data.reference,
+      reference: safeReference, // ✅ Ne sera plus undefined
       status: 'pending',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
