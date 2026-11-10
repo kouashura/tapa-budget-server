@@ -3,3 +3,7 @@ node_modules/
 serviceAccountKey.json
 serviceAccountKey_OLD.json
 *.log
+
+key_oneline.json
+sa.b64
+*.b64
