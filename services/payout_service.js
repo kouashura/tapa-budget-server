@@ -1,25 +1,28 @@
 // server/services/payout_service.js
-const DigitalPaye = require('digitalpaye-node');
 
-// Initialisation avec les clés stockées en variables d'environnement
-const dp = new DigitalPaye(
-  process.env.DP_PUBLIC_KEY,
-  process.env.DP_SECRET
-);
+let dp = null;
 
-/**
- * Envoie de l'argent vers un compte Mobile Money
- * @param {number} amount - Montant en FCFA
- * @param {string} phone - Numéro au format international (+225XXXXXXXXXX)
- * @param {string} operator - 'WAVE', 'ORANGE', 'MTN', 'MOOV'
- * @param {string} userId - ID de l'utilisateur (pour la transaction)
- */
+function getDigitalPaye() {
+  if (dp) return dp;
+
+  const publicKey = process.env.DP_PUBLIC_KEY;
+  const secret = process.env.DP_SECRET;
+
+  if (!publicKey || !secret) {
+    throw new Error('DigitalPaye: DP_PUBLIC_KEY et DP_SECRET doivent être configurés dans les variables d\'environnement de Render.');
+  }
+
+  const DigitalPaye = require('digitalpaye-node');
+  dp = new DigitalPaye({ publicKey, secret });
+  return dp;
+}
+
 async function createPayout(amount, phone, operator, userId) {
   try {
+    const client = getDigitalPaye(); // Lève une erreur claire si les clés manquent
     const externalRef = `WITHDRAW_${userId}_${Date.now()}`;
 
-    // Appel au SDK DigitalPaye
-    const payout = await dp.payouts.create({
+    const payout = await client.payouts.create({
       amount: amount,
       currency: 'XOF',
       operator_code: operator,
