@@ -7,49 +7,30 @@ const app = express();
 
 let serviceAccount;
 
-// ✅ Chercher le fichier secret aux emplacements possibles sur Render
-const possiblePaths = [
-  path.join(__dirname, 'serviceAccountKey.json'), // Racine du projet sur Render
-  '/etc/secrets/serviceAccountKey.json',           // Secret File sur Render
-  path.join(process.cwd(), 'serviceAccountKey.json') // Fallback
-];
+// ✅ Priorité au Secret File sur Render
+const secretPath = '/etc/secrets/serviceAccountKey.json';
+const localPath = path.join(__dirname, 'serviceAccountKey.json');
 
-for (const p of possiblePaths) {
-  if (fs.existsSync(p)) {
-    console.log('✅ Fichier Firebase trouvé:', p);
-    try {
-      serviceAccount = JSON.parse(fs.readFileSync(p, 'utf8'));
-      break;
-    } catch (e) {
-      console.error('❌ Erreur parsing du fichier', p, ':', e.message);
-    }
-  }
-}
-
-// Fallback : variable d'environnement (doit être le JSON COMPLET)
-if (!serviceAccount && process.env.FIREBASE_SERVICE_ACCOUNT) {
-  console.log('🔍 Tentative avec FIREBASE_SERVICE_ACCOUNT...');
-  try {
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  } catch (e) {
-    console.error('❌ FIREBASE_SERVICE_ACCOUNT n\'est pas un JSON valide. Vérifie qu\'il contient le fichier entier (pas juste la clé privée).');
-  }
+if (fs.existsSync(secretPath)) {
+  console.log('✅ Lecture du Secret File:', secretPath);
+  serviceAccount = JSON.parse(fs.readFileSync(secretPath, 'utf8'));
+} else if (fs.existsSync(localPath)) {
+  console.log('✅ Lecture du fichier local:', localPath);
+  serviceAccount = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+} else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  console.log('⚠️ Fallback sur FIREBASE_SERVICE_ACCOUNT');
+  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 }
 
 if (!serviceAccount) {
-  console.error('❌❌❌ AUCUNE CLÉ FIREBASE VALIDE TROUVÉE ❌❌❌');
+  console.error('❌ Aucune clé Firebase trouvée');
   process.exit(1);
 }
 
-try {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
-  console.log('✅ Firebase Admin initialisé');
-} catch (error) {
-  console.error('❌ Erreur Firebase Admin:', error.message);
-  process.exit(1);
-}
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+console.log('✅ Firebase Admin initialisé');
 
 app.use(express.json());
 
