@@ -23,12 +23,14 @@ try {
 app.use(express.json());
 
 const withdrawRoute = require('./routes/withdraw');
+const paiementRoute = require('./routes/paiement');
 const webhookRoute = require('./routes/webhook_digitalpaye');
 const adminWithdrawRoute = require('./routes/admin_withdraw');
 
 app.use('/api', withdrawRoute);
 app.use('/api', webhookRoute);
 app.use('/api', adminWithdrawRoute);
+app.use('/api', paiementRoute);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
