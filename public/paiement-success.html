@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paiement réussi - TAPA Budget</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #F8F9FA;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 40px 30px;
+      text-align: center;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+      max-width: 400px;
+      width: 100%;
+    }
+    .icon-container {
+      width: 80px;
+      height: 80px;
+      background-color: #E8F5E9;
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 0 auto 20px;
+    }
+    .icon {
+      font-size: 40px;
+      color: #2E7D32;
+    }
+    h1 {
+      color: #1A237E; /* Bleu foncé TAPA */
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+    p {
+      color: #666;
+      font-size: 16px;
+      line-height: 1.5;
+      margin-bottom: 30px;
+    }
+    .btn {
+      background-color: #2E7D32;
+      color: white;
+      border: none;
+      padding: 15px 30px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      width: 100%;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .btn:active {
+      background-color: #1B5E20;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon-container">
+      <div class="icon">✓</div>
+    </div>
+    <h1>Paiement réussi !</h1>
+    <p>Votre wallet sera crédité dans quelques instants.</p>
+    <button class="btn" onclick="window.close()">Retourner dans l'application</button>
+  </div>
+</body>
+</html>

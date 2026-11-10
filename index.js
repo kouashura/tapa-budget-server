@@ -59,3 +59,14 @@ app.get('/api/paiement/success', (req, res) => {
 app.get('/api/paiement/error', (req, res) => {
   res.send('<h1>Paiement échoué ou annulé</h1><p>Vous pouvez retourner dans l\'application TAPA Budget et réessayer.</p>');
 });
+
+const path = require('path');
+
+// Routes de retour DigitalPaye (pages HTML pro)
+app.get('/api/paiement/success', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'paiement-success.html'));
+});
+
+app.get('/api/paiement/error', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'paiement-error.html'));
+});
