@@ -51,14 +51,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Serveur démarré sur le port ${PORT}`);
 });
 
-// Routes de retour DigitalPaye (pour éviter l'erreur Cannot GET)
-app.get('/api/paiement/success', (req, res) => {
-  res.send('<h1>Paiement réussi</h1><p>Vous pouvez retourner dans l\'application TAPA Budget.</p>');
-});
-
-app.get('/api/paiement/error', (req, res) => {
-  res.send('<h1>Paiement échoué ou annulé</h1><p>Vous pouvez retourner dans l\'application TAPA Budget et réessayer.</p>');
-});
 
 const path = require('path');
 
