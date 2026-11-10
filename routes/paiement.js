@@ -42,8 +42,19 @@ router.post('/paiement/init', async (req, res) => {
       url_error: 'https://tapa-budget-server.onrender.com/api/paiement/error'
     });
 
-    // ✅ Sécurisation : si link.data.reference est undefined, on utilise externalRef
+    // ✅ Sécurisation de la référence
     const safeReference = link.data?.reference || link.data?.ref || externalRef;
+    
+    // ✅ Sécurisation de l'URL de checkout (on cherche tous les noms possibles)
+    const checkoutUrl = link.data?.url || link.data?.payment_url || link.data?.checkout_url;
+
+    if (!checkoutUrl) {
+      console.error('⚠️ Structure de réponse inattendue:', JSON.stringify(link));
+      return res.status(500).json({ 
+        error: 'URL de paiement introuvable dans la réponse de DigitalPaye',
+        debug: link
+      });
+    }
 
     await db.collection('transactions').add({
       userId,
@@ -51,7 +62,7 @@ router.post('/paiement/init', async (req, res) => {
       operator,
       phone,
       externalRef,
-      reference: safeReference, // ✅ Ne sera plus undefined
+      reference: safeReference,
       status: 'pending',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
@@ -59,7 +70,7 @@ router.post('/paiement/init', async (req, res) => {
     res.status(200).json({
       success: true,
       externalRef: externalRef,
-      checkoutUrl: link.data.url
+      checkoutUrl: checkoutUrl
     });
 
   } catch (error) {
