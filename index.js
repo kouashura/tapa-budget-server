@@ -1,8 +1,8 @@
+const path = require('path');
 require('dotenv').config();
 const express = require('express');
 const admin = require('firebase-admin');
 const fs = require('fs');
-const path = require('path');
 const app = express();
 
 let serviceAccount;
@@ -52,7 +52,6 @@ app.listen(PORT, '0.0.0.0', () => {
 });
 
 
-const path = require('path');
 
 // Routes de retour DigitalPaye (pages HTML pro)
 app.get('/api/paiement/success', (req, res) => {
