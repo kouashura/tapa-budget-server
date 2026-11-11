@@ -6,8 +6,8 @@ const db = admin.firestore();
 // Middleware de sécurité (à utiliser sur toutes les routes admin)
 // ⚠️ Pour l'instant, on vérifie juste un header secret. En production, utilise un vrai système d'auth.
 const checkAdmin = (req, res, next) => {
-  const adminKey = req.headers['x-admin-key'];
-  if (adminKey !== process.env.ADMIN_SECRET_KEY) {
+  const adminKey = req.headers['x-admin-token'];
+  if (adminKey !== 'TAPA_ADMIN_SECRET_2026') {
     return res.status(403).json({ error: 'Accès refusé. Clé admin invalide.' });
   }
   next();
