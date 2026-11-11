@@ -126,15 +126,19 @@ router.get('/users/:id', async (req, res) => {
       };
     });
 
-    // 5. Les contrats SONAM (on cherche par email ou uid selon ce qui existe)
+    // 5. Les contrats SONAM (recherche par email car pas de uid à la racine)
     let sonamContracts = [];
     try {
-      // On essaie par email d'abord (car dans la capture on voit l'email)
       if (userData.email) {
-        const sonamQuery = await db.collection('sonam_contracts').where('assure.email', '==', userData.email).get();
+        const sonamQuery = await db.collection('sonam_contracts')
+          .where('assure.email', '==', userData.email)
+          .get();
         sonamContracts = sonamQuery.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        console.log(`Trouvé ${sonamContracts.length} contrats SONAM pour ${userData.email}`);
       }
-    } catch (e) { console.log('Erreur lecture sonam_contracts:', e.message); }
+    } catch (e) {
+      console.error('Erreur lecture sonam_contracts:', e.message);
+    }
 
     // 6. Les souscriptions
     let souscriptions = [];
