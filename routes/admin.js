@@ -104,20 +104,24 @@ router.get('/users/:id', async (req, res) => {
 
     // 2. Tous les portefeuilles (Wave, Orange, etc.)
     const walletsSnapshot = await db.collection('user_wallet')
-      .where('userId', '==', id)
+      .where('uid', '==', id)
       .get();
     const wallets = walletsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    // 3. Le Wallet TAPA principal (s'il est dans une autre collection)
+    // 3. Le Wallet TAPA principal (cherché dans la collection 'wallets')
     let mainWallet = null;
-    const mainWalletDoc = await db.collection('wallets').doc(id).get();
-    if (mainWalletDoc.exists) {
-      mainWallet = { id: mainWalletDoc.id, ...mainWalletDoc.data() };
+    const mainWalletQuery = await db.collection('wallets')
+      .where('uid', '==', id)
+      .limit(1)
+      .get();
+    if (!mainWalletQuery.empty) {
+      const doc = mainWalletQuery.docs[0];
+      mainWallet = { id: doc.id, ...doc.data() };
     }
 
     // 4. Les 10 dernières transactions
     const txSnapshot = await db.collection('transactions')
-      .where('userId', '==', id)
+      .where('uid', '==', id)
       .orderBy('createdAt', 'desc')
       .limit(10)
       .get();
