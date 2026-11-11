@@ -101,30 +101,22 @@ router.get('/users/:id', async (req, res) => {
     if (!userDoc.exists) {
       return res.status(404).json({ error: 'Utilisateur non trouvé' });
     }
+    const userData = userDoc.data();
 
     // 2. Tous les portefeuilles (Wave, Orange, etc.)
-    const walletsSnapshot = await db.collection('user_wallet')
-      .where('uid', '==', id)
-      .get();
+    const walletsSnapshot = await db.collection('user_wallet').where('uid', '==', id).get();
     const wallets = walletsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    // 3. Le Wallet TAPA principal (cherché dans la collection 'wallets')
+    // 3. Le Wallet TAPA principal
     let mainWallet = null;
-    const mainWalletQuery = await db.collection('wallets')
-      .where('uid', '==', id)
-      .limit(1)
-      .get();
+    const mainWalletQuery = await db.collection('wallets').where('uid', '==', id).limit(1).get();
     if (!mainWalletQuery.empty) {
       const doc = mainWalletQuery.docs[0];
       mainWallet = { id: doc.id, ...doc.data() };
     }
 
-    // 4. Les 10 dernières transactions
-    const txSnapshot = await db.collection('transactions')
-      .where('uid', '==', id)
-      .orderBy('createdAt', 'desc')
-      .limit(10)
-      .get();
+    // 4. Les transactions
+    const txSnapshot = await db.collection('transactions').where('uid', '==', id).orderBy('createdAt', 'desc').limit(10).get();
     const transactions = txSnapshot.docs.map(doc => {
       const data = doc.data();
       return {
@@ -134,12 +126,31 @@ router.get('/users/:id', async (req, res) => {
       };
     });
 
+    // 5. Les contrats SONAM (on cherche par email ou uid selon ce qui existe)
+    let sonamContracts = [];
+    try {
+      // On essaie par email d'abord (car dans la capture on voit l'email)
+      if (userData.email) {
+        const sonamQuery = await db.collection('sonam_contracts').where('assure.email', '==', userData.email).get();
+        sonamContracts = sonamQuery.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      }
+    } catch (e) { console.log('Erreur lecture sonam_contracts:', e.message); }
+
+    // 6. Les souscriptions
+    let souscriptions = [];
+    try {
+      const subQuery = await db.collection('souscriptions').where('uid', '==', id).get();
+      souscriptions = subQuery.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (e) { console.log('Erreur lecture souscriptions:', e.message); }
+
     res.json({
       success: true,
-      user: { id: userDoc.id, ...userDoc.data() },
+      user: { id: userDoc.id, ...userData },
       wallets: wallets,
       mainWallet: mainWallet,
-      transactions: transactions
+      transactions: transactions,
+      sonamContracts: sonamContracts,
+      souscriptions: souscriptions
     });
   } catch (error) {
     console.error('Erreur détails user:', error);
