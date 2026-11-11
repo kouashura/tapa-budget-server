@@ -21,7 +21,7 @@ function getDigitalPaye() {
 }
 
 router.post('/paiement/init', async (req, res) => {
-  const { userId, amount, operator, phone, description } = req.body;
+  const { userId, amount, operator, phone, description, sourceWalletId } = req.body;
 
   try {
     if (!userId || !amount || !operator || !phone) {
@@ -63,6 +63,7 @@ router.post('/paiement/init', async (req, res) => {
       phone,
       externalRef,
       reference: safeReference,
+      sourceWalletId: sourceWalletId,
       status: 'pending',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });

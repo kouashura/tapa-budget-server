@@ -26,7 +26,38 @@ router.post('/webhook/digitalpaye', async (req, res) => {
     const txDoc = txQuery.docs[0];
     const txData = txDoc.data();
 
-    if (event === 'payout.success') {
+    if (event === 'collect.success' || event === 'transaction.success') {
+      // 1. Créditer le Wallet TAPA
+      const targetWalletRef = db.collection('user_wallet').doc(txData.userId);
+      const targetWalletDoc = await targetWalletRef.get();
+      const currentTargetBalance = targetWalletDoc.data()?.solde || 0;
+
+      await targetWalletRef.update({
+        solde: currentTargetBalance + txData.amount,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // 2. Débiter le portefeuille source
+      if (txData.sourceWalletId) {
+        const sourceWalletRef = db.collection('user_wallet').doc(txData.sourceWalletId);
+        const sourceWalletDoc = await sourceWalletRef.get();
+
+        if (sourceWalletDoc.exists) {
+          const currentSourceBalance = sourceWalletDoc.data()?.solde || 0;
+          const newSourceBalance = Math.max(0, currentSourceBalance - txData.amount);
+
+          await sourceWalletRef.update({
+            solde: newSourceBalance,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        }
+      }
+      
+      await txDoc.ref.update({
+        status: 'success',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } else if (event === 'payout.success') {
       await txDoc.ref.update({
         status: 'success',
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
