@@ -104,25 +104,26 @@ router.get('/users/:id', async (req, res) => {
     const userData = userDoc.data();
 
     // 2. Tous les portefeuilles (Wave, Orange, etc.)
-    const walletsSnapshot = await db.collection('user_wallet').where('uid', '==', id).get();
+    const walletsSnapshot = await db.collection('user_wallet').where('userId', '==', id).get();
     const wallets = walletsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
     // 3. Le Wallet TAPA principal
     let mainWallet = null;
-    const mainWalletQuery = await db.collection('wallets').where('uid', '==', id).limit(1).get();
+    const mainWalletQuery = await db.collection('wallets').where('userId', '==', id).limit(1).get();
     if (!mainWalletQuery.empty) {
       const doc = mainWalletQuery.docs[0];
       mainWallet = { id: doc.id, ...doc.data() };
     }
 
     // 4. Les transactions
-    const txSnapshot = await db.collection('transactions').where('uid', '==', id).orderBy('createdAt', 'desc').limit(10).get();
+    const txSnapshot = await db.collection('transactions').where('uid', '==', id).orderBy('dateTransaction', 'desc').limit(10).get();
     const transactions = txSnapshot.docs.map(doc => {
       const data = doc.data();
       return {
         id: doc.id,
         ...data,
-        createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
+        amount: data.montant || 0, // On renomme 'montant' en 'amount' pour Flutter
+        createdAt: data.dateTransaction ? data.dateTransaction.toDate().toISOString() : null, // On renomme 'dateTransaction' en 'createdAt'
       };
     });
 
