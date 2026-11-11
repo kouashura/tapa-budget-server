@@ -39,12 +39,14 @@ const webhookRoute = require('./routes/webhook_digitalpaye');
 const adminWithdrawRoute = require('./routes/admin_withdraw');
 const paiementRoute = require('./routes/paiement');
 const payoutRoute = require('./routes/payout');
+const adminRoute = require('./routes/admin');
 
 app.use('/api', withdrawRoute);
 app.use('/api', webhookRoute);
 app.use('/api', adminWithdrawRoute);
 app.use('/api', paiementRoute);
 app.use('/api', payoutRoute);
+app.use('/api/admin', adminRoute);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
