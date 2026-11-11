@@ -92,29 +92,53 @@ router.get('/users', async (req, res) => {
 });
 
 
-// --- 4. DÉTAILS D'UN UTILISATEUR ---
+// --- 4. DÉTAILS COMPLETS D'UN UTILISATEUR ---
 router.get('/users/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    // 1. Infos utilisateur
+    // 1. Infos profil utilisateur
     const userDoc = await db.collection('users').doc(id).get();
     if (!userDoc.exists) {
       return res.status(404).json({ error: 'Utilisateur non trouvé' });
     }
 
-    // 2. Wallets de l'utilisateur
+    // 2. Tous les portefeuilles (Wave, Orange, etc.)
     const walletsSnapshot = await db.collection('user_wallet')
       .where('userId', '==', id)
       .get();
-    
     const wallets = walletsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    // 3. Le Wallet TAPA principal (s'il est dans une autre collection)
+    let mainWallet = null;
+    const mainWalletDoc = await db.collection('wallets').doc(id).get();
+    if (mainWalletDoc.exists) {
+      mainWallet = { id: mainWalletDoc.id, ...mainWalletDoc.data() };
+    }
+
+    // 4. Les 10 dernières transactions
+    const txSnapshot = await db.collection('transactions')
+      .where('userId', '==', id)
+      .orderBy('createdAt', 'desc')
+      .limit(10)
+      .get();
+    const transactions = txSnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
+      };
+    });
 
     res.json({
       success: true,
       user: { id: userDoc.id, ...userDoc.data() },
-      wallets: wallets
+      wallets: wallets,
+      mainWallet: mainWallet,
+      transactions: transactions
     });
   } catch (error) {
+    console.error('Erreur détails user:', error);
     res.status(500).json({ error: error.message });
   }
 });
