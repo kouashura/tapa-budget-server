@@ -119,11 +119,31 @@ router.get('/users/:id', async (req, res) => {
     const txSnapshot = await db.collection('transactions').where('uid', '==', id).orderBy('dateTransaction', 'desc').limit(10).get();
     const transactions = txSnapshot.docs.map(doc => {
       const data = doc.data();
+      
+      // Gestion robuste des dates (String, Timestamp Firebase, ou null)
+      let dateStr = null;
+      if (data.dateTransaction) {
+        try {
+          if (typeof data.dateTransaction.toDate === 'function') {
+            // C'est un Timestamp Firebase
+            dateStr = data.dateTransaction.toDate().toISOString();
+          } else if (typeof data.dateTransaction === 'string') {
+            // C'est déjà une chaîne
+            dateStr = data.dateTransaction;
+          } else if (data.dateTransaction._seconds) {
+            // C'est un objet {_seconds, _nanoseconds}
+            dateStr = new Date(data.dateTransaction._seconds * 1000).toISOString();
+          }
+        } catch (e) {
+          console.log('Erreur parsing date tx:', e.message);
+        }
+      }
+
       return {
         id: doc.id,
         ...data,
-        amount: data.montant || 0, // On renomme 'montant' en 'amount' pour Flutter
-        createdAt: data.dateTransaction ? data.dateTransaction.toDate().toISOString() : null, // On renomme 'dateTransaction' en 'createdAt'
+        amount: data.montant || 0,
+        createdAt: dateStr,
       };
     });
 
