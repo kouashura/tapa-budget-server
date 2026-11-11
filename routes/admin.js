@@ -91,4 +91,32 @@ router.get('/users', async (req, res) => {
   }
 });
 
+
+// --- 4. DÉTAILS D'UN UTILISATEUR ---
+router.get('/users/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    // 1. Infos utilisateur
+    const userDoc = await db.collection('users').doc(id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'Utilisateur non trouvé' });
+    }
+
+    // 2. Wallets de l'utilisateur
+    const walletsSnapshot = await db.collection('user_wallet')
+      .where('userId', '==', id)
+      .get();
+    
+    const wallets = walletsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    res.json({
+      success: true,
+      user: { id: userDoc.id, ...userDoc.data() },
+      wallets: wallets
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
