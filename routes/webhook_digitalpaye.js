@@ -7,7 +7,7 @@ const db = admin.firestore();
 router.post('/webhook/digitalpaye', async (req, res) => {
   const { event, data } = req.body;
 
-  console.log('📩 Webhook DigitalPaye:', event, data);
+  console.log('📩 Webhook DigitalPaye reçu:', event, data);
 
   try {
     const externalRef = data?.external_ref;
@@ -15,67 +15,75 @@ router.post('/webhook/digitalpaye', async (req, res) => {
       return res.status(400).json({ error: 'external_ref manquant' });
     }
 
+    // On cherche la transaction dans Firestore
     const txQuery = await db.collection('transactions')
       .where('externalRef', '==', externalRef)
       .get();
 
     if (txQuery.empty) {
+      console.log('⚠️ Transaction non trouvée dans Firestore pour:', externalRef);
       return res.status(404).json({ error: 'Transaction non trouvée' });
     }
 
     const txDoc = txQuery.docs[0];
     const txData = txDoc.data();
 
+    // ✅ 1. GESTION DES RECHARGEMENTS (COLLECT)
     if (event === 'collect.success' || event === 'transaction.success') {
-      // 1. Créditer le Wallet TAPA
-      const targetWalletRef = db.collection('user_wallet').doc(txData.userId);
-      const targetWalletDoc = await targetWalletRef.get();
-      const currentTargetBalance = targetWalletDoc.data()?.solde || 0;
+      
+      // Créditer le Wallet TAPA
+      const walletRef = db.collection('wallets').doc(txData.userId);
+      const walletDoc = await walletRef.get();
+      
+      if (walletDoc.exists) {
+        const currentBalance = walletDoc.data()?.solde || 0;
+        await walletRef.update({
+          solde: currentBalance + txData.amount,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`✅ Wallet crédité de ${txData.amount} FCFA pour ${txData.userId}`);
+      } else {
+        // Si le wallet n'existe pas, on le crée
+        await walletRef.set({
+          solde: txData.amount,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`✅ Nouveau Wallet créé et crédité de ${txData.amount} FCFA`);
+      }
 
-      await targetWalletRef.update({
-        solde: currentTargetBalance + txData.amount,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      // 2. Débiter le portefeuille source
+      // Débiter le portefeuille source (Wave, Orange, etc.)
       if (txData.sourceWalletId) {
-        const sourceWalletRef = db.collection('user_wallet').doc(txData.sourceWalletId);
-        const sourceWalletDoc = await sourceWalletRef.get();
-
-        if (sourceWalletDoc.exists) {
-          const currentSourceBalance = sourceWalletDoc.data()?.solde || 0;
-          const newSourceBalance = Math.max(0, currentSourceBalance - txData.amount);
-
-          await sourceWalletRef.update({
-            solde: newSourceBalance,
+        const sourceRef = db.collection('user_wallet').doc(txData.sourceWalletId);
+        const sourceDoc = await sourceRef.get();
+        if (sourceDoc.exists) {
+          const currentSource = sourceDoc.data()?.solde || 0;
+          await sourceRef.update({
+            solde: Math.max(0, currentSource - txData.amount),
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
         }
       }
-      
-      await txDoc.ref.update({
-        status: 'success',
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    } else if (event === 'payout.success') {
-      await txDoc.ref.update({
-        status: 'success',
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    } else if (event === 'payout.failed') {
-      const walletRef = db.collection('user_wallet').doc(txData.userId);
+
+      await txDoc.ref.update({ status: 'success' });
+      return res.status(200).json({ received: true });
+    }
+
+    // ✅ 2. GESTION DES RETRAITS (PAYOUT)
+    if (event === 'payout.success') {
+      await txDoc.ref.update({ status: 'success' });
+      return res.status(200).json({ received: true });
+    } 
+    
+    if (event === 'payout.failed') {
+      // Rembourser le wallet
+      const walletRef = db.collection('wallets').doc(txData.userId);
       const walletDoc = await walletRef.get();
       const currentBalance = walletDoc.data()?.solde || 0;
-
       await walletRef.update({
         solde: currentBalance + txData.amount,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-
-      await txDoc.ref.update({
-        status: 'failed',
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      await txDoc.ref.update({ status: 'failed' });
+      return res.status(200).json({ received: true });
     }
 
     res.status(200).json({ received: true });
