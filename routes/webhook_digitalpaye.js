@@ -15,75 +15,80 @@ router.post('/webhook/digitalpaye', async (req, res) => {
       return res.status(400).json({ error: 'reference manquante' });
     }
 
-    // ✅ On cherche la transaction par la référence EXACTE de DigitalPaye (DP...)
-    const txQuery = await db.collection('transactions')
+    // ✅ ÉTAPE 1 : Chercher la transaction
+    let txQuery = await db.collection('transactions')
       .where('reference', '==', reference)
       .get();
 
+    // Si pas trouvé par reference (car c'est DP...), on cherche par externalRef ou par montant+userId
     if (txQuery.empty) {
-      console.log('⚠️ Transaction non trouvée dans Firestore pour:', reference);
+      // On cherche la transaction en attente la plus récente pour cet utilisateur
+      // Note: DigitalPaye ne renvoie pas l'userId, donc on ne peut pas filtrer par userId
+      // On cherche par externalRef (mais DigitalPaye ne le renvoie pas non plus)
+      // SOLUTION: On cherche toutes les transactions en attente et on prend la plus récente
+      console.log('⚠️ Recherche par référence échouée. Recherche de la transaction en attente la plus récente...');
+      
+      const pendingQuery = await db.collection('transactions')
+        .where('status', '==', 'pending')
+        .orderBy('createdAt', 'desc')
+        .limit(5)
+        .get();
+      
+      for (const doc of pendingQuery.docs) {
+        const txData = doc.data();
+        // On vérifie si le montant correspond
+        if (txData.amount === data.amount) {
+          txQuery = { empty: false, docs: [doc] };
+          console.log('✅ Transaction trouvée par montant et statut pending:', doc.id);
+          break;
+        }
+      }
+    }
+
+    if (txQuery.empty) {
+      console.log('⚠️ Transaction non trouvée pour:', reference);
       return res.status(404).json({ error: 'Transaction non trouvée' });
     }
 
     const txDoc = txQuery.docs[0];
     const txData = txDoc.data();
 
-    // ✅ 1. GESTION DES RECHARGEMENTS (COLLECT)
-    if (event === 'transaction.successful' || event === 'payment_link.paid' || event === 'collect.success') {
-      
-      // Créditer le Wallet TAPA
+    // ✅ ÉTAPE 2 : Mettre à jour la référence si elle est différente
+    if (txData.reference !== reference) {
+      await txDoc.ref.update({ reference: reference });
+      console.log('✅ Référence mise à jour:', reference);
+    }
+
+    // ✅ ÉTAPE 3 : Créditer le wallet si le paiement est réussi
+    if (event === 'transaction.successful' || event === 'payment_link.paid') {
+      // Vérifier si déjà crédité
+      if (txData.status === 'success') {
+        console.log('⚠️ Wallet déjà crédité pour cette transaction');
+        return res.status(200).json({ received: true });
+      }
+
       const walletRef = db.collection('wallets').doc(txData.userId);
       const walletDoc = await walletRef.get();
-      
+      const montantNet = txData.montantNet || data.amount;
+
       if (walletDoc.exists) {
         const currentBalance = walletDoc.data()?.solde || 0;
         await walletRef.update({
-          solde: currentBalance + (txData.montantNet || data.amount || txData.amount),
+          solde: currentBalance + montantNet,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        console.log(`✅ Wallet crédité de ${txData.montantNet || data.amount} FCFA (brut: ${data.amount}) pour ${txData.userId}`);
+        console.log(`✅ Wallet crédité de ${montantNet} FCFA pour ${txData.userId}`);
       } else {
-        // Si le wallet n'existe pas, on le crée
         await walletRef.set({
-          solde: (txData.montantNet || data.amount || txData.amount),
+          solde: montantNet,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        console.log(`✅ Nouveau Wallet créé et crédité de ${txData.amount} FCFA`);
+        console.log(`✅ Nouveau Wallet créé et crédité de ${montantNet} FCFA`);
       }
 
-      // Débiter le portefeuille source (Wave, Orange, etc.)
-      if (txData.sourceWalletId) {
-        const sourceRef = db.collection('user_wallet').doc(txData.sourceWalletId);
-        const sourceDoc = await sourceRef.get();
-        if (sourceDoc.exists) {
-          const currentSource = sourceDoc.data()?.solde || 0;
-          await sourceRef.update({
-            solde: Math.max(0, currentSource - txData.amount),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
-        }
-      }
-
-      await txDoc.ref.update({ status: 'success' });
-      return res.status(200).json({ received: true });
-    }
-
-    // ✅ 2. GESTION DES RETRAITS (PAYOUT)
-    if (event === 'payout.success') {
-      await txDoc.ref.update({ status: 'success' });
-      return res.status(200).json({ received: true });
-    } 
-    
-    if (event === 'payout.failed') {
-      // Rembourser le wallet
-      const walletRef = db.collection('wallets').doc(txData.userId);
-      const walletDoc = await walletRef.get();
-      const currentBalance = walletDoc.data()?.solde || 0;
-      await walletRef.update({
-        solde: currentBalance + (txData.montantNet || data.amount || txData.amount),
-      });
-      await txDoc.ref.update({ status: 'failed' });
-      return res.status(200).json({ received: true });
+      // Mettre à jour le statut
+      await txDoc.ref.update({ status: 'success', updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+      console.log('✅ Transaction marquée comme success');
     }
 
     res.status(200).json({ received: true });
