@@ -29,7 +29,7 @@ router.post('/webhook/digitalpaye', async (req, res) => {
     const txData = txDoc.data();
 
     // ✅ 1. GESTION DES RECHARGEMENTS (COLLECT)
-    if (event === 'collect.success' || event === 'transaction.success') {
+    if (event === 'transaction.successful' || event === 'payment_link.paid' || event === 'collect.success') {
       
       // Créditer le Wallet TAPA
       const walletRef = db.collection('wallets').doc(txData.userId);
@@ -38,7 +38,7 @@ router.post('/webhook/digitalpaye', async (req, res) => {
       if (walletDoc.exists) {
         const currentBalance = walletDoc.data()?.solde || 0;
         await walletRef.update({
-          solde: currentBalance + txData.amount,
+          solde: currentBalance + (data.amount || txData.amount),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         console.log(`✅ Wallet crédité de ${txData.amount} FCFA pour ${txData.userId}`);
@@ -80,7 +80,7 @@ router.post('/webhook/digitalpaye', async (req, res) => {
       const walletDoc = await walletRef.get();
       const currentBalance = walletDoc.data()?.solde || 0;
       await walletRef.update({
-        solde: currentBalance + txData.amount,
+        solde: currentBalance + (data.amount || txData.amount),
       });
       await txDoc.ref.update({ status: 'failed' });
       return res.status(200).json({ received: true });
