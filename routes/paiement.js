@@ -20,6 +20,20 @@ function getDigitalPaye() {
   return dp;
 }
 
+
+// ✅ Grille tarifaire DigitalPaye
+function calculerFrais(montant, operator) {
+  let pourcentage = 0;
+  let fixe = 0;
+  
+  if (operator === 'WAVE_MONEY_CI') { pourcentage = 0.018; fixe = 100; }
+  else if (operator === 'ORANGE_MONEY_CI') { pourcentage = 0.025; fixe = 250; }
+  else if (operator === 'MTN_MONEY_CI') { pourcentage = 0.020; fixe = 250; }
+  else if (operator === 'MOOV_MONEY_CI') { pourcentage = 0.025; fixe = 250; }
+  
+  return Math.round((montant * pourcentage) + fixe);
+}
+
 router.post('/paiement/init', async (req, res) => {
   const { userId, amount, operator, phone, description, sourceWalletId } = req.body;
 
@@ -56,9 +70,15 @@ router.post('/paiement/init', async (req, res) => {
       });
     }
 
+    // Calcul des frais
+    const frais = calculerFrais(amount, operator);
+    const montantNet = amount - frais;
+
     await db.collection('transactions').add({
       userId,
-      amount,
+      amount,      // Montant brut payé
+      frais,       // Frais DigitalPaye
+      montantNet,  // Montant crédité au wallet
       operator,
       phone,
       externalRef,
