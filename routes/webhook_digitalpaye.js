@@ -21,7 +21,7 @@ router.post('/webhook/digitalpaye', async (req, res) => {
       .get();
 
     if (txQuery.empty) {
-      console.log('⚠️ Transaction non trouvée dans Firestore pour:', externalRef);
+      console.log('⚠️ Transaction non trouvée dans Firestore pour:', reference);
       return res.status(404).json({ error: 'Transaction non trouvée' });
     }
 
@@ -38,14 +38,14 @@ router.post('/webhook/digitalpaye', async (req, res) => {
       if (walletDoc.exists) {
         const currentBalance = walletDoc.data()?.solde || 0;
         await walletRef.update({
-          solde: currentBalance + (data.amount || txData.amount),
+          solde: currentBalance + (txData.montantNet || data.amount || txData.amount),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        console.log(`✅ Wallet crédité de ${txData.amount} FCFA pour ${txData.userId}`);
+        console.log(`✅ Wallet crédité de ${txData.montantNet || data.amount} FCFA (brut: ${data.amount}) pour ${txData.userId}`);
       } else {
         // Si le wallet n'existe pas, on le crée
         await walletRef.set({
-          solde: txData.amount,
+          solde: (txData.montantNet || data.amount || txData.amount),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
         console.log(`✅ Nouveau Wallet créé et crédité de ${txData.amount} FCFA`);
@@ -80,7 +80,7 @@ router.post('/webhook/digitalpaye', async (req, res) => {
       const walletDoc = await walletRef.get();
       const currentBalance = walletDoc.data()?.solde || 0;
       await walletRef.update({
-        solde: currentBalance + (data.amount || txData.amount),
+        solde: currentBalance + (txData.montantNet || data.amount || txData.amount),
       });
       await txDoc.ref.update({ status: 'failed' });
       return res.status(200).json({ received: true });
