@@ -15,10 +15,17 @@ router.post('/webhook/digitalpaye', async (req, res) => {
       return res.status(400).json({ error: 'reference manquante' });
     }
 
-    // ✅ On cherche la transaction par la référence DigitalPaye (et non external_ref)
-    const txQuery = await db.collection('transactions')
+    // ✅ On cherche la transaction par reference OU externalRef
+    let txQuery = await db.collection('transactions')
       .where('reference', '==', reference)
       .get();
+    
+    // Si pas trouvé, on essaie avec externalRef
+    if (txQuery.empty) {
+      txQuery = await db.collection('transactions')
+        .where('externalRef', '==', reference)
+        .get();
+    }
 
     if (txQuery.empty) {
       console.log('⚠️ Transaction non trouvée dans Firestore pour:', reference);
