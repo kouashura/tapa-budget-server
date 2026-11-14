@@ -56,10 +56,13 @@ router.post('/paiement/init', async (req, res) => {
       url_error: 'https://tapa-budget-server.onrender.com/api/paiement/error'
     });
 
-    // ✅ Sécurisation de la référence
-    const safeReference = link.data?.reference || link.data?.ref || externalRef;
-    
-    // ✅ Sécurisation de l'URL de checkout (on cherche tous les noms possibles)
+    // ✅ On récupère la référence EXACTE de DigitalPaye
+    const digitalPayeReference = link.data?.reference;
+    if (!digitalPayeReference) {
+      console.log('⚠️ Attention: DigitalPaye n\'a pas renvoyé de référence');
+    }
+
+    // ✅ Sécurisation de l'URL de checkout
     const checkoutUrl = link.data?.url || link.data?.payment_url || link.data?.checkout_url;
 
     if (!checkoutUrl) {
@@ -81,8 +84,8 @@ router.post('/paiement/init', async (req, res) => {
       montantNet,  // Montant crédité au wallet
       operator,
       phone,
-      externalRef,
-      reference: safeReference,
+      externalRef, // Ta référence interne (COLLECT_...)
+      reference: digitalPayeReference || externalRef, // ✅ Référence EXACTE DigitalPaye (DP...)
       sourceWalletId: sourceWalletId,
       status: 'pending',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
