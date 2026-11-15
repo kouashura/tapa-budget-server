@@ -6,7 +6,6 @@ const db = admin.firestore();
 
 router.post('/webhook/digitalpaye', async (req, res) => {
   const { event, data } = req.body;
-
   console.log('📩 Webhook DigitalPaye reçu:', event, data);
 
   try {
@@ -15,19 +14,20 @@ router.post('/webhook/digitalpaye', async (req, res) => {
       return res.status(400).json({ error: 'reference manquante' });
     }
 
-    // ✅ ÉTAPE 1 : Chercher la transaction
+    // 1. Trouver la transaction (par reference OU par externalRef)
     let txQuery = await db.collection('transactions')
       .where('reference', '==', reference)
       .get();
-
-    // Si pas trouvé par reference (car c'est DP...), on cherche par externalRef ou par montant+userId
+    
     if (txQuery.empty) {
-      // On cherche la transaction en attente la plus récente pour cet utilisateur
-      // Note: DigitalPaye ne renvoie pas l'userId, donc on ne peut pas filtrer par userId
-      // On cherche par externalRef (mais DigitalPaye ne le renvoie pas non plus)
-      // SOLUTION: On cherche toutes les transactions en attente et on prend la plus récente
-      console.log('⚠️ Recherche par référence échouée. Recherche de la transaction en attente la plus récente...');
-      
+      txQuery = await db.collection('transactions')
+        .where('externalRef', '==', reference)
+        .get();
+    }
+
+    // Si toujours pas trouvé, on cherche la transaction en attente la plus récente
+    if (txQuery.empty) {
+      console.log('⚠️ Recherche par référence échouée. Recherche de la transaction en attente...');
       const pendingQuery = await db.collection('transactions')
         .where('status', '==', 'pending')
         .orderBy('createdAt', 'desc')
@@ -35,9 +35,7 @@ router.post('/webhook/digitalpaye', async (req, res) => {
         .get();
       
       for (const doc of pendingQuery.docs) {
-        const txData = doc.data();
-        // On vérifie si le montant correspond
-        if (txData.amount === data.amount) {
+        if (doc.data().amount === data.amount) {
           txQuery = { empty: false, docs: [doc] };
           console.log('✅ Transaction trouvée par montant et statut pending:', doc.id);
           break;
@@ -46,49 +44,64 @@ router.post('/webhook/digitalpaye', async (req, res) => {
     }
 
     if (txQuery.empty) {
-      console.log('⚠️ Transaction non trouvée pour:', reference);
       return res.status(404).json({ error: 'Transaction non trouvée' });
     }
 
     const txDoc = txQuery.docs[0];
     const txData = txDoc.data();
 
-    // ✅ ÉTAPE 2 : Mettre à jour la référence si elle est différente
+    // 2. Mettre à jour la référence dans Firestore (pour les futurs webhooks)
     if (txData.reference !== reference) {
       await txDoc.ref.update({ reference: reference });
       console.log('✅ Référence mise à jour:', reference);
     }
 
-    // ✅ ÉTAPE 3 : Créditer le wallet si le paiement est réussi
+    // 3. Si le paiement est réussi, on crédite le Wallet TAPA
     if (event === 'transaction.successful' || event === 'payment_link.paid') {
-      // Vérifier si déjà crédité
+      
+      // Vérifier si déjà crédité (évite les doublons)
       if (txData.status === 'success') {
-        console.log('⚠️ Wallet déjà crédité pour cette transaction');
+        console.log('⚠️ Déjà crédité pour cette transaction');
         return res.status(200).json({ received: true });
       }
 
-      const walletRef = db.collection('wallets').doc(txData.userId);
-      const walletDoc = await walletRef.get();
       const montantNet = txData.montantNet || data.amount;
 
+      // ✅ A. Créditer le Wallet TAPA (collection 'wallets')
+      const walletRef = db.collection('wallets').doc(txData.userId);
+      const walletDoc = await walletRef.get();
+      
       if (walletDoc.exists) {
         const currentBalance = walletDoc.data()?.solde || 0;
         await walletRef.update({
           solde: currentBalance + montantNet,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        console.log(`✅ Wallet crédité de ${montantNet} FCFA pour ${txData.userId}`);
       } else {
         await walletRef.set({
           solde: montantNet,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        console.log(`✅ Nouveau Wallet créé et crédité de ${montantNet} FCFA`);
+      }
+      console.log(`✅ Wallet TAPA crédité de ${montantNet} FCFA pour ${txData.userId}`);
+
+      // ✅ B. Débiter le portefeuille virtuel source (collection 'user_wallet')
+      if (txData.sourceWalletId) {
+        const sourceRef = db.collection('user_wallet').doc(txData.sourceWalletId);
+        const sourceDoc = await sourceRef.get();
+        
+        if (sourceDoc.exists) {
+          const sourceBalance = sourceDoc.data()?.solde || 0;
+          await sourceRef.update({
+            solde: Math.max(0, sourceBalance - montantNet), // On ne passe pas en négatif
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log(`✅ Portefeuille virtuel ${txData.sourceWalletId} débité de ${montantNet} FCFA`);
+        }
       }
 
-      // Mettre à jour le statut
+      // Marquer la transaction comme success
       await txDoc.ref.update({ status: 'success', updatedAt: admin.firestore.FieldValue.serverTimestamp() });
-      console.log('✅ Transaction marquée comme success');
     }
 
     res.status(200).json({ received: true });
