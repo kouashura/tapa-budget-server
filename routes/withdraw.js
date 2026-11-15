@@ -8,6 +8,12 @@ const db = admin.firestore();
 router.post('/withdraw', async (req, res) => {
   const { userId, amount, phone, operator } = req.body;
     
+    // ✅ Nettoyer le numéro (enlever les +225 en double)
+    let cleanPhone = phone.replace(/\+225\+225/g, '+225');
+    if (!cleanPhone.startsWith('+225')) {
+      cleanPhone = '+225' + cleanPhone.replace(/\D/g, '');
+    }
+    
     // ✅ On transforme WAVE_MONEY_CI en WAVE (ce que DigitalPaye attend)
     const dpOperator = operator.replace('_MONEY_CI', '').replace('_CI', '');
 
@@ -40,7 +46,7 @@ router.post('/withdraw', async (req, res) => {
     });
 
     // 4. Appeler DigitalPaye pour le virement
-    const payoutResult = await createPayout(amount, phone, dpOperator, userId);
+    const payoutResult = await createPayout(amount, cleanPhone, dpOperator, userId);
 
     if (!payoutResult.success) {
       // Rembourser le wallet en cas d'échec
@@ -58,7 +64,7 @@ router.post('/withdraw', async (req, res) => {
       phone: phone,
       operator: operator,
       externalRef: payoutResult.externalRef,
-      reference: payoutResult.reference,
+      reference: payoutResult.reference || 'N/A',
       status: 'pending',
       requestedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
