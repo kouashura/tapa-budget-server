@@ -184,25 +184,5 @@ router.get('/users/:id', async (req, res) => {
 });
 
 
-// --- ROUTE TEMPORAIRE POUR TEST ---
-router.post('/test-credit', async (req, res) => {
-  const { userId, amount } = req.body;
-  if (!userId || !amount) return res.status(400).json({ error: 'userId et amount requis' });
-
-  try {
-    const walletRef = db.collection('wallets').doc(userId);
-    const walletDoc = await walletRef.get();
-    const currentBalance = walletDoc.exists ? (walletDoc.data().solde || 0) : 0;
-    
-    await walletRef.set({
-      solde: currentBalance + amount,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-    
-    res.json({ success: true, newBalance: currentBalance + amount });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 module.exports = router;
