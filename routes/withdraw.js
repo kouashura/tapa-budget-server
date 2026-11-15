@@ -48,26 +48,34 @@ router.post('/withdraw', async (req, res) => {
     // 4. Appeler DigitalPaye pour le virement
     const payoutResult = await createPayout(amount, cleanPhone, dpOperator, userId);
 
+    // 4. Créer la demande de retrait (avec le statut 'pending' au début)
+    const withdrawRef = await db.collection('withdraw_requests').add({
+      userId: userId,
+      amount: amount,
+      phone: phone,
+      operator: operator,
+      externalRef: payoutResult.externalRef || 'N/A',
+      reference: payoutResult.reference || 'N/A',
+      status: 'pending',
+      requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
     if (!payoutResult.success) {
       // Rembourser le wallet en cas d'échec
       await walletRef.update({
         solde: currentBalance,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+      
+      // ✅ Mettre à jour le statut de la demande pour dire qu'elle a échoué
+      await withdrawRef.update({
+        status: 'failed',
+        error: payoutResult.error,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      
       return res.status(500).json({ error: payoutResult.error });
     }
-
-    // 5. Créer la demande de retrait avec le statut 'pending'
-    const withdrawRef = await db.collection('withdraw_requests').add({
-      userId: userId,
-      amount: amount,
-      phone: phone,
-      operator: operator,
-      externalRef: payoutResult.externalRef,
-      reference: payoutResult.reference || 'N/A',
-      status: 'pending',
-      requestedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
 
     console.log('✅ Retrait initié:', { externalRef: payoutResult.externalRef, reference: payoutResult.reference });
 
