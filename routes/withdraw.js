@@ -7,6 +7,9 @@ const db = admin.firestore();
 
 router.post('/withdraw', async (req, res) => {
   const { userId, amount, phone, operator } = req.body;
+    
+    // ✅ On transforme WAVE_MONEY_CI en WAVE (ce que DigitalPaye attend)
+    const dpOperator = operator.replace('_MONEY_CI', '').replace('_CI', '');
 
   try {
     // 1. Vérifications de base
@@ -37,7 +40,7 @@ router.post('/withdraw', async (req, res) => {
     });
 
     // 4. Appeler DigitalPaye pour le virement
-    const payoutResult = await createPayout(amount, phone, operator, userId);
+    const payoutResult = await createPayout(amount, phone, dpOperator, userId);
 
     if (!payoutResult.success) {
       // Rembourser le wallet en cas d'échec
