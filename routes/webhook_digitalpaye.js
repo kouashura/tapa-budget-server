@@ -104,6 +104,46 @@ router.post('/webhook/digitalpaye', async (req, res) => {
       await txDoc.ref.update({ status: 'success', updatedAt: admin.firestore.FieldValue.serverTimestamp() });
     }
 
+    // ✅ GESTION DES RETRAITS (PAYOUT)
+    if (event === 'payout.success' || event === 'payout.failed') {
+      // Trouver la demande de retrait par externalRef (qui contient WITHDRAW_...)
+      const withdrawQuery = await db.collection('withdraw_requests')
+        .where('externalRef', '==', data.external_ref)
+        .get();
+
+      if (!withdrawQuery.empty) {
+        const withdrawDoc = withdrawQuery.docs[0];
+        
+        if (event === 'payout.success') {
+          await withdrawDoc.ref.update({
+            status: 'success',
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log('✅ Retrait marqué comme success');
+        } else if (event === 'payout.failed') {
+          // Rembourser le wallet
+          const withdrawData = withdrawDoc.data();
+          const walletRef = db.collection('wallets').doc(withdrawData.userId);
+          const walletDoc = await walletRef.get();
+          
+          if (walletDoc.exists) {
+            const currentBalance = walletDoc.data()?.solde || 0;
+            await walletRef.update({
+              solde: currentBalance + withdrawData.amount,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            console.log('✅ Wallet remboursé de', withdrawData.amount, 'FCFA');
+          }
+          
+          await withdrawDoc.ref.update({
+            status: 'failed',
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          console.log('❌ Retrait marqué comme failed');
+        }
+      }
+    }
+
     res.status(200).json({ received: true });
   } catch (error) {
     console.error('❌ Erreur webhook:', error);

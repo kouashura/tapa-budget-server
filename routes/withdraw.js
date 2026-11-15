@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const admin = require('firebase-admin');
+const { createPayout } = require('../services/payout_service');
 
 const db = admin.firestore();
 
@@ -16,8 +17,8 @@ router.post('/withdraw', async (req, res) => {
       return res.status(400).json({ error: 'Montant minimum 500 FCFA' });
     }
 
-    // 2. Vérifier le wallet
-    const walletRef = db.collection('user_wallet').doc(userId);
+    // 2. Vérifier le Wallet TAPA (collection 'wallets', pas 'user_wallet')
+    const walletRef = db.collection('wallets').doc(userId);
     const walletDoc = await walletRef.get();
 
     if (!walletDoc.exists) {
@@ -35,31 +36,35 @@ router.post('/withdraw', async (req, res) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 4. Créer la demande de retrait avec le statut "en attente manuelle"
+    // 4. Appeler DigitalPaye pour le virement
+    const payoutResult = await createPayout(amount, phone, operator, userId);
+
+    if (!payoutResult.success) {
+      // Rembourser le wallet en cas d'échec
+      await walletRef.update({
+        solde: currentBalance,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return res.status(500).json({ error: payoutResult.error });
+    }
+
+    // 5. Créer la demande de retrait avec le statut 'pending'
     const withdrawRef = await db.collection('withdraw_requests').add({
       userId: userId,
       amount: amount,
       phone: phone,
       operator: operator,
-      status: 'pending_manual', // En attente d'action de l'équipe
+      externalRef: payoutResult.externalRef,
+      reference: payoutResult.reference,
+      status: 'pending',
       requestedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 5. Générer un message clair pour ton équipe
-    const adminMessage = `Nouvelle demande de retrait à traiter sur PaiementPro:\n` +
-      `- Client ID: ${userId}\n` +
-      `- Montant: ${amount} FCFA\n` +
-      `- Opérateur: ${operator}\n` +
-      `- Numéro: ${phone}\n` +
-      `- Référence Firestore: ${withdrawRef.id}`;
-
-    console.log('\n🚨🚨🚨 ACTION REQUISE 🚨🚨🚨');
-    console.log(adminMessage);
-    console.log('===================================\n');
+    console.log('✅ Retrait initié:', { externalRef: payoutResult.externalRef, reference: payoutResult.reference });
 
     res.status(200).json({
       success: true,
-      message: 'Demande de retrait enregistrée. Elle sera traitée sous 48h maximum.',
+      message: 'Demande de retrait initiée avec succès.',
       requestId: withdrawRef.id,
     });
 
