@@ -34,7 +34,7 @@ async function createPayout(amount, phone, operator, userId) {
     console.log('✅ Payout initié:', payout);
     return {
       success: true,
-      reference: payout.reference,
+      reference: payout.data?.reference || payout.reference || 'N/A', // ✅ Référence correcte
       externalRef: externalRef,
     };
   } catch (error) {

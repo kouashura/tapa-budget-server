@@ -114,7 +114,7 @@ router.post('/webhook/digitalpaye', async (req, res) => {
       if (!withdrawQuery.empty) {
         const withdrawDoc = withdrawQuery.docs[0];
         
-        if (event === 'payout.success') {
+        if (event === 'payout.successful') { // ✅ Corrigé : seulement sur successful
           await withdrawDoc.ref.update({
             status: 'success',
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
