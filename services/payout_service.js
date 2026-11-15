@@ -25,6 +25,7 @@ async function createPayout(amount, phone, operator, userId) {
     const payout = await client.payouts.create({
       amount: amount,
       currency: 'XOF',
+      country: 'CI', // ✅ Pays requis par DigitalPaye
       operator_code: operator,
       external_ref: externalRef,
       recipient_phone: phone,
