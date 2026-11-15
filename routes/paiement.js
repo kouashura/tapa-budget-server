@@ -52,7 +52,7 @@ router.post('/paiement/init', async (req, res) => {
       operator_code: operator,
       external_ref: externalRef,
       payer_phone: phone,
-      url_success: 'https://tapa-budget-server.onrender.com/api/paiement/success',
+      url_success: 'tapa://wallet', // ✅ Deep Link pour rouvrir l'app
       url_error: 'https://tapa-budget-server.onrender.com/api/paiement/error'
     });
 
