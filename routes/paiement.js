@@ -45,16 +45,43 @@ router.post('/paiement/init', async (req, res) => {
     const externalRef = `COLLECT_${userId}_${Date.now()}`;
     const client = getDigitalPaye();
 
-    const link = await client.paymentLinks.create({
-      label: description || 'Rechargement TAPA Budget',
-      amount: amount,
-      currency: 'XOF',
-      operator_code: operator,
-      external_ref: externalRef,
-      payer_phone: phone,
-      url_success: 'tapa://wallet', // ✅ Deep Link pour rouvrir l'app
-      url_error: 'https://tapa-budget-server.onrender.com/api/paiement/error'
-    });
+    let link;
+    let checkoutUrl;
+    let digitalPayeReference;
+
+    if (operator.includes('WAVE')) {
+      // ✅ Pour Wave, on utilise transactions.collect (paiement direct)
+      const collectResult = await client.transactions.collect({
+        amount: amount,
+        currency: 'XOF',
+        operator_code: 'WAVE_MONEY_CI',
+        external_ref: externalRef,
+        payer_phone: phone,
+        payer_first_name: 'Client',
+        payer_last_name: 'TAPA',
+        payer_email: 'client@tapa.ci',
+        // Wave n'a pas besoin d'OTP, il envoie une notification push
+      });
+
+      digitalPayeReference = collectResult.data?.reference;
+      // Pour un collect direct, il n'y a pas d'URL de checkout
+      // L'utilisateur reçoit une notification Wave sur son téléphone
+      checkoutUrl = null; // Pas d'URL, le paiement se fait en arrière-plan
+    } else {
+      // Pour les autres opérateurs, on garde paymentLinks.create
+      link = await client.paymentLinks.create({
+        label: description || 'Rechargement TAPA Budget',
+        amount: amount,
+        currency: 'XOF',
+        operator_code: operator,
+        external_ref: externalRef,
+        payer_phone: phone,
+        url_success: 'https://tapa-budget-server.onrender.com/api/paiement/success',
+        url_error: 'https://tapa-budget-server.onrender.com/api/paiement/error'
+      });
+      digitalPayeReference = link.data?.reference;
+      checkoutUrl = link.data?.url || link.data?.payment_url || link.data?.checkout_url;
+    }
 
     // ✅ On récupère la référence EXACTE de DigitalPaye
     const digitalPayeReference = link.data?.reference;
@@ -98,10 +125,10 @@ router.post('/paiement/init', async (req, res) => {
     res.status(200).json({
       success: true,
       externalRef: externalRef,
-      reference: digitalPayeReference, // ✅ Ajout de la référence
-      checkoutUrl: finalUrl // ✅ URL Wave spécifique ou URL générique
+      reference: digitalPayeReference,
+      checkoutUrl: finalUrl,
+      isDirectPayment: operator.includes('WAVE') // ✅ Indique à Flutter que c'est un paiement direct
     });
-
   } catch (error) {
     console.error('❌ Erreur init paiement:', error.message);
     res.status(500).json({ error: error.message });
