@@ -20,7 +20,6 @@ function getDigitalPaye() {
   return dp;
 }
 
-
 // ✅ Grille tarifaire DigitalPaye
 function calculerFrais(montant, operator) {
   let pourcentage = 0;
@@ -45,58 +44,27 @@ router.post('/paiement/init', async (req, res) => {
     const externalRef = `COLLECT_${userId}_${Date.now()}`;
     const client = getDigitalPaye();
 
-    let link;
-    let checkoutUrl;
-    let digitalPayeReference;
+    // ✅ On utilise paymentLinks.create pour TOUS les opérateurs (y compris Wave)
+    // C'est cette méthode qui renvoie le wave_launch_url pour Wave
+    const link = await client.paymentLinks.create({
+      label: description || 'Rechargement TAPA Budget',
+      amount: amount,
+      currency: 'XOF',
+      operator_code: operator,
+      external_ref: externalRef,
+      payer_phone: phone,
+      url_success: 'https://tapa-budget-server.onrender.com/api/paiement/success',
+      url_error: 'https://tapa-budget-server.onrender.com/api/paiement/error'
+    });
 
-    if (operator.includes('WAVE')) {
-      // ✅ Pour Wave, on utilise transactions.collect (paiement direct)
-      const collectResult = await client.transactions.collect({
-        amount: amount,
-        currency: 'XOF',
-        operator_code: 'WAVE_MONEY_CI',
-        external_ref: externalRef,
-        payer_phone: phone,
-        payer_first_name: 'Client',
-        payer_last_name: 'TAPA',
-        payer_email: 'client@tapa.ci',
-        // Wave n'a pas besoin d'OTP, il envoie une notification push
-      });
-
-      digitalPayeReference = collectResult.data?.reference;
-      // Pour un collect direct, il n'y a pas d'URL de checkout
-      // L'utilisateur reçoit une notification Wave sur son téléphone
-      checkoutUrl = null; // Pas d'URL, le paiement se fait en arrière-plan
-    } else {
-      // Pour les autres opérateurs, on garde paymentLinks.create
-      link = await client.paymentLinks.create({
-        label: description || 'Rechargement TAPA Budget',
-        amount: amount,
-        currency: 'XOF',
-        operator_code: operator,
-        external_ref: externalRef,
-        payer_phone: phone,
-        url_success: 'https://tapa-budget-server.onrender.com/api/paiement/success',
-        url_error: 'https://tapa-budget-server.onrender.com/api/paiement/error'
-      });
-      digitalPayeReference = link.data?.reference;
-      checkoutUrl = link.data?.url || link.data?.payment_url || link.data?.checkout_url;
-    }
-
-    // ✅ On récupère la référence EXACTE de DigitalPaye
     const digitalPayeReference = link.data?.reference;
-    if (!digitalPayeReference) {
-      console.log('⚠️ Attention: DigitalPaye n\'a pas renvoyé de référence');
-    }
-
-    // ✅ Récupérer l'URL de checkout ET l'URL de lancement Wave
     const checkoutUrl = link.data?.url || link.data?.payment_url || link.data?.checkout_url;
-    const waveLaunchUrl = link.data?.wave_launch_url; // ✅ URL spécifique Wave
+    const waveLaunchUrl = link.data?.wave_launch_url;
 
-    // ✅ Si c'est un paiement Wave, on utilise wave_launch_url
+    // ✅ Si c'est un paiement Wave et que wave_launch_url existe, on l'utilise
     const finalUrl = (operator.includes('WAVE') && waveLaunchUrl) ? waveLaunchUrl : checkoutUrl;
 
-    if (!checkoutUrl) {
+    if (!finalUrl) {
       console.error('⚠️ Structure de réponse inattendue:', JSON.stringify(link));
       return res.status(500).json({ 
         error: 'URL de paiement introuvable dans la réponse de DigitalPaye',
@@ -110,13 +78,13 @@ router.post('/paiement/init', async (req, res) => {
 
     await db.collection('transactions').add({
       userId,
-      amount,      // Montant brut payé
-      frais,       // Frais DigitalPaye
-      montantNet,  // Montant crédité au wallet
+      amount,
+      frais,
+      montantNet,
       operator,
       phone,
-      externalRef, // Ta référence interne (COLLECT_...)
-      reference: digitalPayeReference || externalRef, // ✅ Référence EXACTE DigitalPaye (DP...)
+      externalRef,
+      reference: digitalPayeReference || externalRef,
       sourceWalletId: sourceWalletId,
       status: 'pending',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -126,9 +94,9 @@ router.post('/paiement/init', async (req, res) => {
       success: true,
       externalRef: externalRef,
       reference: digitalPayeReference,
-      checkoutUrl: finalUrl,
-      isDirectPayment: operator.includes('WAVE') // ✅ Indique à Flutter que c'est un paiement direct
+      checkoutUrl: finalUrl
     });
+
   } catch (error) {
     console.error('❌ Erreur init paiement:', error.message);
     res.status(500).json({ error: error.message });
