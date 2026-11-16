@@ -13,9 +13,9 @@ router.post('/send-sms', async (req, res) => {
     const response = await axios.post(
       'https://api.brevo.com/v3/transactionalSMS/send',
       {
-        sender: 'TAPA', // Ton Sender ID approuvé
-        recipient: phone, // Format international sans + (ex: 2250700000000)
-        content: `Votre code de vérification TAPA est : ${code}`,
+        sender: 'TAPA',
+        recipient: phone,
+        content: `Votre code de verification TAPA est : ${code}`,
         type: 'transactional',
       },
       {
@@ -27,7 +27,7 @@ router.post('/send-sms', async (req, res) => {
       }
     );
 
-    console.log('✅ SMS envoyé:', response.data);
+    console.log('✅ SMS envoyé à', phone, response.data);
     res.json({ success: true, messageId: response.data.messageId });
   } catch (error) {
     console.error('❌ Erreur envoi SMS:', error.response?.data || error.message);
