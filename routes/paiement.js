@@ -98,6 +98,7 @@ router.post('/paiement/init', async (req, res) => {
     res.status(200).json({
       success: true,
       externalRef: externalRef,
+      reference: digitalPayeReference, // ✅ Ajout de la référence
       checkoutUrl: finalUrl // ✅ URL Wave spécifique ou URL générique
     });
 
