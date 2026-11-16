@@ -64,9 +64,9 @@ router.post('/paiement/init', async (req, res) => {
 
     // ✅ Récupérer l'URL de checkout ET l'URL de lancement Wave
     const checkoutUrl = link.data?.url || link.data?.payment_url || link.data?.checkout_url;
-    const waveLaunchUrl = link.data?.wave_launch_url; // URL spécifique Wave
+    const waveLaunchUrl = link.data?.wave_launch_url; // ✅ URL spécifique Wave
 
-    // Si c'est un paiement Wave, on privilégie wave_launch_url
+    // ✅ Si c'est un paiement Wave, on utilise wave_launch_url
     const finalUrl = (operator.includes('WAVE') && waveLaunchUrl) ? waveLaunchUrl : checkoutUrl;
 
     if (!checkoutUrl) {
