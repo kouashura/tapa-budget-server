@@ -62,8 +62,12 @@ router.post('/paiement/init', async (req, res) => {
       console.log('⚠️ Attention: DigitalPaye n\'a pas renvoyé de référence');
     }
 
-    // ✅ Sécurisation de l'URL de checkout
+    // ✅ Récupérer l'URL de checkout ET l'URL de lancement Wave
     const checkoutUrl = link.data?.url || link.data?.payment_url || link.data?.checkout_url;
+    const waveLaunchUrl = link.data?.wave_launch_url; // URL spécifique Wave
+
+    // Si c'est un paiement Wave, on privilégie wave_launch_url
+    const finalUrl = (operator.includes('WAVE') && waveLaunchUrl) ? waveLaunchUrl : checkoutUrl;
 
     if (!checkoutUrl) {
       console.error('⚠️ Structure de réponse inattendue:', JSON.stringify(link));
@@ -94,7 +98,7 @@ router.post('/paiement/init', async (req, res) => {
     res.status(200).json({
       success: true,
       externalRef: externalRef,
-      checkoutUrl: checkoutUrl
+      checkoutUrl: finalUrl // ✅ URL Wave spécifique ou URL générique
     });
 
   } catch (error) {
