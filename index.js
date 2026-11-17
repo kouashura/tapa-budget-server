@@ -41,13 +41,14 @@ const paiementRoute = require('./routes/paiement');
 const payoutRoute = require('./routes/payout');
 const adminRoute = require('./routes/admin');
 const smsRoute = require('./routes/sms');
+const requireAdmin = require('./middleware/requireAdmin');
 
 app.use('/api', withdrawRoute);
 app.use('/api', webhookRoute);
-app.use('/api', adminWithdrawRoute);
+app.use('/api/admin', requireAdmin, adminWithdrawRoute);
 app.use('/api', paiementRoute);
 app.use('/api', payoutRoute);
-app.use('/api/admin', adminRoute);
+app.use('/api/admin', requireAdmin, adminRoute);
 app.use('/api', smsRoute);
 
 const PORT = process.env.PORT || 3000;

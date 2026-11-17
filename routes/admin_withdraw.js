@@ -4,20 +4,8 @@ const admin = require('firebase-admin');
 
 const db = admin.firestore();
 
-// ✅ Middleware simple pour vérifier l'admin (à adapter avec un vrai système d'auth)
-// Pour l'instant, on vérifie un token secret dans le header
-function checkAdmin(req, res, next) {
-  const adminToken = req.headers['x-admin-token'];
-  // ⚠️ Change ce token par un secret fort que tu gardes pour toi
-  if (adminToken === 'TAPA_ADMIN_SECRET_2026') {
-    next();
-  } else {
-    res.status(403).json({ error: 'Accès refusé : administrateur requis' });
-  }
-}
-
 // 📋 Lister les demandes en attente
-router.get('/admin/withdraws', checkAdmin, async (req, res) => {
+router.get('/withdraws', async (req, res) => {
   try {
     const snapshot = await db.collection('withdraw_requests')
       .where('status', '==', 'pending_manual')
@@ -38,7 +26,7 @@ router.get('/admin/withdraws', checkAdmin, async (req, res) => {
 });
 
 // ✅ Valider une demande (déjà existant)
-router.post('/admin/withdraw/:requestId/complete', checkAdmin, async (req, res) => {
+router.post('/withdraw/:requestId/complete', async (req, res) => {
   const { requestId } = req.params;
   const { status } = req.body;
 
