@@ -75,7 +75,19 @@
     </div>
     <h1>Paiement réussi !</h1>
     <p>Votre wallet sera crédité dans quelques instants.</p>
-    <button class="btn" onclick="window.close()">Retourner dans l'application</button>
+    <button class="btn" onclick="retourApp()">Retourner dans l'application</button>
+
+    <script>
+      function retourApp() {
+        // 1. Tente d'ouvrir l'app via le deep link custom
+        window.location.href = 'tapa://wallet';
+
+        // 2. Si l'app n'est pas installee, fallback vers Play Store
+        setTimeout(function() {
+          window.location.href = 'https://play.google.com/store/apps/details?id=com.citapabudget.my';
+        }, 1500);
+      }
+    </script>
   </div>
 </body>
 </html>
