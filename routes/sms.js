@@ -25,7 +25,7 @@ router.post('/send-sms', async (req, res) => {
       {
         sender: {
           name: 'TAPA Invest',
-          email: process.env.BREVO_SENDER_EMAIL || 'no-reply@tapa-budget.com',
+          email: process.env.BREVO_SENDER_EMAIL || 'infosservices2015@gmail.com',
         },
         to: [{ email }],
         subject: 'Votre code de verification TAPA Invest',
