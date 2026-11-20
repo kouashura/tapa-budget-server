@@ -33,36 +33,27 @@ admin.initializeApp({
 console.log('✅ Firebase Admin initialisé');
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.set("trust proxy", 1);
 
 const withdrawRoute = require('./routes/withdraw');
-const webhookRoute = require('./routes/webhook_digitalpaye');
 const adminWithdrawRoute = require('./routes/admin_withdraw');
 const paiementRoute = require('./routes/paiement');
 const payoutRoute = require('./routes/payout');
 const adminRoute = require('./routes/admin');
 const smsRoute = require('./routes/sms');
+const emailAuthRoute = require("./routes/emailAuth");
 const requireAdmin = require('./middleware/requireAdmin');
 
 app.use('/api', withdrawRoute);
-app.use('/api', webhookRoute);
 app.use('/api/admin', requireAdmin, adminWithdrawRoute);
 app.use('/api', paiementRoute);
 app.use('/api', payoutRoute);
 app.use('/api/admin', requireAdmin, adminRoute);
 app.use('/api', smsRoute);
+app.use("/api", emailAuthRoute);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Serveur démarré sur le port ${PORT}`);
-});
-
-
-
-// Routes de retour DigitalPaye (pages HTML pro)
-app.get('/api/paiement/success', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'paiement-success.html'));
-});
-
-app.get('/api/paiement/error', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'paiement-error.html'));
 });
