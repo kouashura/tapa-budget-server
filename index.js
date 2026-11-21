@@ -48,7 +48,7 @@ const requireAdmin = require('./middleware/requireAdmin');
 app.use('/api', withdrawRoute);
 app.use('/api/admin', requireAdmin, adminWithdrawRoute);
 app.use('/api', paiementRoute);
-app.use('/api', payoutRoute);
+// app.use('/api', payoutRoute); // DÉSACTIVÉ : retrait automatique sans authentification
 app.use('/api/admin', requireAdmin, adminRoute);
 app.use('/api', smsRoute);
 app.use("/api", emailAuthRoute);
