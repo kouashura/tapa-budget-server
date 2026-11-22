@@ -19,25 +19,32 @@ const FieldValue = admin.firestore.FieldValue;
 const BASE_URL =
   process.env.PUBLIC_BASE_URL || 'https://tapa-budget-server.onrender.com';
 
-// ⚠️ Grille de frais reprise de l'ancien système (pour que l'app affiche les
-// mêmes montants). À ALIGNER avec la grille réelle de Paiement Pro.
-function calculerFrais(montant, operator) {
-  let pourcentage = 0;
-  let fixe = 0;
+// Frais d'encaissement : MÊME calcul que l'affichage de l'app (5 % par défaut),
+// pour que « montant reçu » affiché = montant réellement crédité.
+// Réglables sur Render : ENCAISSEMENT_FRAIS_POURCENT (ex: 5) et ENCAISSEMENT_FRAIS_FIXE (ex: 0).
+const FRAIS_POURCENT = Number(process.env.ENCAISSEMENT_FRAIS_POURCENT || 5);
+const FRAIS_FIXE = Number(process.env.ENCAISSEMENT_FRAIS_FIXE || 0);
+const MONTANT_MIN = Number(process.env.ENCAISSEMENT_MIN || 500); // comme l'app
 
-  if (operator === 'WAVE_MONEY_CI') { pourcentage = 0.018; fixe = 100; }
-  else if (operator === 'ORANGE_MONEY_CI') { pourcentage = 0.025; fixe = 250; }
-  else if (operator === 'MTN_MONEY_CI') { pourcentage = 0.020; fixe = 250; }
-  else if (operator === 'MOOV_MONEY_CI') { pourcentage = 0.025; fixe = 250; }
+function calculerNet(montant) {
+  return Math.round(montant - (montant * (FRAIS_POURCENT / 100) + FRAIS_FIXE));
+}
 
-  return Math.round(montant * pourcentage + fixe);
+// Accepte les codes de l'app (WAVE, ORANGE...) comme les anciens (WAVE_MONEY_CI, OMCIV2...)
+function normaliserOperateur(op) {
+  const o = String(op || '').toUpperCase();
+  if (o.includes('ORANGE') || o.startsWith('OMCI')) return 'ORANGE';
+  if (o.includes('WAVE')) return 'WAVE';
+  if (o.includes('MTN') || o.includes('MOMO')) return 'MTN';
+  if (o.includes('MOOV') || o.includes('FLOOZ')) return 'MOOV';
+  return null;
 }
 
 // Orange et Wave ont un code confirmé ; les autres passent par la page de
 // sélection de Paiement Pro.
-function channelPour(operator) {
-  if (operator === 'ORANGE_MONEY_CI') return CHANNELS.ORANGE;
-  if (operator === 'WAVE_MONEY_CI') return CHANNELS.WAVE;
+function channelPour(op) {
+  if (op === 'ORANGE') return CHANNELS.ORANGE;
+  if (op === 'WAVE') return CHANNELS.WAVE;
   return CHANNELS.AUTRE;
 }
 
@@ -71,9 +78,17 @@ router.post('/paiement/init', async (req, res) => {
     if (!Number.isFinite(montant) || montant <= 0) {
       return res.status(400).json({ error: 'Montant invalide' });
     }
+    if (montant < MONTANT_MIN) {
+      return res.status(400).json({ error: `Montant minimum ${MONTANT_MIN} FCFA` });
+    }
 
-    const frais = calculerFrais(montant, operator);
-    const montantNet = montant - frais;
+    const op = normaliserOperateur(operator);
+    if (!op) {
+      return res.status(400).json({ error: 'Opérateur invalide' });
+    }
+
+    const montantNet = calculerNet(montant);
+    const frais = montant - montantNet;
     if (montantNet <= 0) {
       return res.status(400).json({ error: 'Montant trop faible' });
     }
@@ -111,7 +126,7 @@ router.post('/paiement/init', async (req, res) => {
       amount: montant,
       frais,
       montantNet,
-      operator,
+      operator: op,
       phone: tel,
       externalRef,
       reference: externalRef,
@@ -127,7 +142,7 @@ router.post('/paiement/init', async (req, res) => {
       resultat = await initierPaiement({
         amount: montant,
         description: description || 'Rechargement TAPA Invest',
-        channel: channelPour(operator),
+        channel: channelPour(op),
         referenceNumber: externalRef,
         customerEmail: email,
         customerFirstName: prenom,
