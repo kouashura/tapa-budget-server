@@ -1,36 +1,41 @@
 // server/routes/paiement.js
-// Encaissement via PAIEMENT PRO (remplace DigitalPaye pour les paiements entrants).
+// Encaissement via DIGITALPAYE (remplace Paiement Pro).
 //
-//  POST /api/paiement/init               -> l'app demande un lien de paiement
-//  ALL  /api/paiementpro/notification    -> Paiement Pro confirme (serveur à serveur)
-//  ALL  /api/paiement/retour             -> page où revient le client, renvoie vers l'app
+//  POST /api/paiement/init   -> l'app lance un paiement (Wave: lien, MTN/Moov: push, Orange: OTP)
+//  ALL  /api/paiement/retour -> page où revient le client (Wave), renvoie vers l'app
+//  Confirmation              -> routes/webhook_digitalpaye.js (signé HMAC)
 //
-// Variables .env : PAIEMENTPRO_MERCHANT_ID, [PUBLIC_BASE_URL], [PAIEMENTPRO_EMAIL_DEFAUT]
+// Variables : DP_PUBLIC_KEY, DP_SECRET, DP_WEBHOOK_SECRET, [PUBLIC_BASE_URL]
 
 const express = require('express');
 const crypto = require('crypto');
 const admin = require('firebase-admin');
-const { initierPaiement, genererReference, CHANNELS } = require('../paiementpro');
+const requireUser = require('../middleware/requireUser');
+const dp = require('../services/digitalpaye');
 
 const router = express.Router();
 const db = admin.firestore();
 const FieldValue = admin.firestore.FieldValue;
 
-const BASE_URL =
-  process.env.PUBLIC_BASE_URL || 'https://tapa-budget-server.onrender.com';
+const BASE_URL = process.env.PUBLIC_BASE_URL || 'https://tapa-budget-server.onrender.com';
 
-// Frais d'encaissement : MÊME calcul que l'affichage de l'app (5 % par défaut),
-// pour que « montant reçu » affiché = montant réellement crédité.
-// Réglables sur Render : ENCAISSEMENT_FRAIS_POURCENT (ex: 5) et ENCAISSEMENT_FRAIS_FIXE (ex: 0).
+// Frais d'encaissement TAPA (inchangé : même calcul que l'affichage de l'app)
 const FRAIS_POURCENT = Number(process.env.ENCAISSEMENT_FRAIS_POURCENT || 5);
 const FRAIS_FIXE = Number(process.env.ENCAISSEMENT_FRAIS_FIXE || 0);
-const MONTANT_MIN = Number(process.env.ENCAISSEMENT_MIN || 500); // comme l'app
+const MONTANT_MIN = Number(process.env.ENCAISSEMENT_MIN || 500);
+const MONTANT_MAX = 2000000; // plafond DigitalPaye
 
 function calculerNet(montant) {
   return Math.round(montant - (montant * (FRAIS_POURCENT / 100) + FRAIS_FIXE));
 }
 
-// Accepte les codes de l'app (WAVE, ORANGE...) comme les anciens (WAVE_MONEY_CI, OMCIV2...)
+const OP_CODES = {
+  ORANGE: 'ORANGE_MONEY_CI',
+  MTN: 'MTN_MONEY_CI',
+  WAVE: 'WAVE_MONEY_CI',
+  MOOV: 'MOOV_MONEY_CI', // code non documenté : à confirmer auprès de DigitalPaye
+};
+
 function normaliserOperateur(op) {
   const o = String(op || '').toUpperCase();
   if (o.includes('ORANGE') || o.startsWith('OMCI')) return 'ORANGE';
@@ -40,14 +45,6 @@ function normaliserOperateur(op) {
   return null;
 }
 
-// Orange et Wave ont un code confirmé ; les autres passent par la page de
-// sélection de Paiement Pro.
-function channelPour(op) {
-  if (op === 'ORANGE') return CHANNELS.ORANGE;
-  if (op === 'WAVE') return CHANNELS.WAVE;
-  return CHANNELS.AUTRE;
-}
-
 function normaliserTelephone(phone) {
   let d = String(phone || '').replace(/\D/g, '');
   if (d.startsWith('00225')) d = d.slice(5);
@@ -55,125 +52,13 @@ function normaliserTelephone(phone) {
   return d;
 }
 
-function tokenOk(recu, attendu) {
-  const a = Buffer.from(String(recu));
-  const b = Buffer.from(String(attendu));
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+function genererReference(prefixe = 'TP') {
+  return `${prefixe}${Date.now()}${crypto.randomBytes(3).toString('hex')}`;
 }
 
 // ============================================
-// 1. INITIALISATION
+// Crédit atomique et idempotent (inchangé)
 // ============================================
-router.post('/paiement/init', async (req, res) => {
-  const { userId, amount, operator, phone, description, sourceWalletId } =
-    req.body || {};
-
-  try {
-    if (!userId || !amount || !operator || !phone) {
-      return res.status(400).json({ error: 'Champs manquants' });
-    }
-
-    const uid = String(userId);
-    const montant = Math.round(Number(amount));
-    if (!Number.isFinite(montant) || montant <= 0) {
-      return res.status(400).json({ error: 'Montant invalide' });
-    }
-    if (montant < MONTANT_MIN) {
-      return res.status(400).json({ error: `Montant minimum ${MONTANT_MIN} FCFA` });
-    }
-
-    const op = normaliserOperateur(operator);
-    if (!op) {
-      return res.status(400).json({ error: 'Opérateur invalide' });
-    }
-
-    const montantNet = calculerNet(montant);
-    const frais = montant - montantNet;
-    if (montantNet <= 0) {
-      return res.status(400).json({ error: 'Montant trop faible' });
-    }
-
-    const tel = normaliserTelephone(phone);
-    if (tel.length < 8) {
-      return res.status(400).json({ error: 'Numéro de téléphone invalide' });
-    }
-
-    // Le portefeuille à débiter doit appartenir à l'utilisateur
-    if (sourceWalletId) {
-      const src = await db.collection('user_wallet').doc(String(sourceWalletId)).get();
-      if (src.exists) {
-        const proprio = src.data().uid || src.data().userId;
-        if (proprio && proprio !== uid) {
-          return res.status(403).json({ error: 'Portefeuille source non autorisé' });
-        }
-      }
-    }
-
-    // Infos client exigées par Paiement Pro
-    const userDoc = await db.collection('users').doc(uid).get();
-    const u = userDoc.exists ? userDoc.data() : {};
-    if (!userDoc.exists) console.warn('⚠️ Profil introuvable pour', uid);
-    const prenom = String(u.prenom || 'Client').replace(/"/g, '');
-    const email = u.email || process.env.PAIEMENTPRO_EMAIL_DEFAUT || 'client@tapa-invest.com';
-
-    const externalRef = genererReference('TP');
-    const notifToken = crypto.randomBytes(24).toString('hex');
-    const txRef = db.collection('transactions').doc(externalRef);
-
-    // On enregistre AVANT d'appeler Paiement Pro : la notification trouvera toujours la ligne
-    await txRef.set({
-      userId: uid,
-      amount: montant,
-      frais,
-      montantNet,
-      operator: op,
-      phone: tel,
-      externalRef,
-      reference: externalRef,
-      sourceWalletId: sourceWalletId || null,
-      provider: 'paiementpro',
-      notifToken,
-      status: 'pending',
-      createdAt: FieldValue.serverTimestamp(),
-    });
-
-    let resultat;
-    try {
-      resultat = await initierPaiement({
-        amount: montant,
-        description: description || 'Rechargement TAPA Invest',
-        channel: channelPour(op),
-        referenceNumber: externalRef,
-        customerEmail: email,
-        customerFirstName: prenom,
-        customerLastname: u.nom || 'Client',
-        customerPhoneNumber: tel,
-        notificationURL: `${BASE_URL}/api/paiementpro/notification?t=${notifToken}`,
-        returnURL: `${BASE_URL}/api/paiement/retour?ref=${externalRef}`,
-        returnContext: { ref: externalRef },
-      });
-    } catch (e) {
-      await txRef.update({ status: 'init_failed', updatedAt: FieldValue.serverTimestamp() });
-      throw e;
-    }
-
-    res.status(200).json({
-      success: true,
-      externalRef,
-      reference: externalRef,
-      checkoutUrl: resultat.url,
-    });
-  } catch (error) {
-    console.error('❌ Erreur init paiement:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// ============================================
-// 2. NOTIFICATION (serveur Paiement Pro -> notre serveur)
-// ============================================
-
-// Crédit atomique et idempotent : une même notification reçue 2 fois ne crédite qu'une fois.
 async function crediter(txRef) {
   return db.runTransaction(async (t) => {
     const txSnap = await t.get(txRef);
@@ -191,7 +76,6 @@ async function crediter(txRef) {
       sourceSnap = await t.get(sourceRef);
     }
 
-    // Toutes les lectures sont faites : on écrit
     t.set(
       walletRef,
       { solde: FieldValue.increment(net), updatedAt: FieldValue.serverTimestamp() },
@@ -213,72 +97,145 @@ async function crediter(txRef) {
   });
 }
 
-async function changerStatutSiPending(txRef, status) {
+async function changerStatutSiPending(txRef, status, extra = {}) {
   return db.runTransaction(async (t) => {
     const snap = await t.get(txRef);
     if (!snap.exists || snap.data().status !== 'pending') return false;
-    t.update(txRef, { status, updatedAt: FieldValue.serverTimestamp() });
+    t.update(txRef, { status, ...extra, updatedAt: FieldValue.serverTimestamp() });
     return true;
   });
 }
 
-router.all('/paiementpro/notification', async (req, res) => {
+// ============================================
+// 1. INITIALISATION
+// ============================================
+router.post('/paiement/init', requireUser, async (req, res) => {
+  const { userId, amount, operator, phone, description, sourceWalletId, otp } = req.body || {};
+
   try {
-    const p = { ...(req.query || {}), ...(req.body || {}) };
-    const token = String((req.query || {}).t || '');
-
-    // Journal du format réel (sans le jeton) : utile au premier vrai test
-    console.log(
-      '📩 Paiement Pro notification:',
-      req.method,
-      req.headers['content-type'] || '-',
-      JSON.stringify({ ...p, t: undefined })
-    );
-
-    const ref = String(p.referenceNumber || '');
-    if (!ref) return res.status(400).json({ error: 'referenceNumber manquant' });
-
-    const txRef = db.collection('transactions').doc(ref);
-    const snap = await txRef.get();
-    if (!snap.exists) return res.status(404).json({ error: 'Transaction inconnue' });
-    const tx = snap.data();
-
-    // Seul Paiement Pro connaît l'URL (avec son jeton unique) : on refuse le reste
-    if (tx.provider !== 'paiementpro' || !tx.notifToken || !tokenOk(token, tx.notifToken)) {
-      console.warn('🚫 Notification refusée (jeton invalide) pour', ref);
-      return res.status(403).json({ error: 'Notification non autorisée' });
+    const uid = req.user.uid;
+    if (userId && String(userId) !== uid) {
+      return res.status(403).json({ error: 'Action non autorisée' });
+    }
+    if (!amount || !operator || !phone) {
+      return res.status(400).json({ error: 'Champs manquants' });
     }
 
-    const code = String(p.responsecode !== undefined ? p.responsecode : p.responseCode);
-    const montantRecu = p.amount !== undefined ? Number(p.amount) : null;
+    const montant = Math.round(Number(amount));
+    if (!Number.isFinite(montant) || montant <= 0) {
+      return res.status(400).json({ error: 'Montant invalide' });
+    }
+    if (montant < MONTANT_MIN) {
+      return res.status(400).json({ error: `Montant minimum ${MONTANT_MIN} FCFA` });
+    }
+    if (montant > MONTANT_MAX) {
+      return res.status(400).json({ error: `Montant maximum ${MONTANT_MAX} FCFA` });
+    }
 
-    if (code === '0') {
-      if (montantRecu !== null && montantRecu !== tx.amount) {
-        console.error(`🚨 Montant différent: reçu ${montantRecu}, attendu ${tx.amount} (${ref})`);
-        await changerStatutSiPending(txRef, 'amount_mismatch');
-        return res.status(200).json({ received: true, credited: false });
+    const op = normaliserOperateur(operator);
+    if (!op) return res.status(400).json({ error: 'Opérateur invalide' });
+
+    if (op === 'ORANGE' && !/^\d{4}$/.test(String(otp || ''))) {
+      return res.status(400).json({ error: 'Code OTP Orange (4 chiffres) requis' });
+    }
+
+    const montantNet = calculerNet(montant);
+    const frais = montant - montantNet;
+    if (montantNet <= 0) return res.status(400).json({ error: 'Montant trop faible' });
+
+    const tel = normaliserTelephone(phone);
+    if (tel.length < 8) return res.status(400).json({ error: 'Numéro de téléphone invalide' });
+
+    if (sourceWalletId) {
+      const src = await db.collection('user_wallet').doc(String(sourceWalletId)).get();
+      if (src.exists) {
+        const proprio = src.data().uid || src.data().userId;
+        if (proprio && proprio !== uid) {
+          return res.status(403).json({ error: 'Portefeuille source non autorisé' });
+        }
       }
-      const credite = await crediter(txRef);
-      console.log(credite ? `✅ Paiement ${ref} crédité` : `ℹ️ Paiement ${ref} déjà traité`);
-      return res.status(200).json({ received: true, credited: credite });
     }
 
-    if (code === '-1') {
-      await changerStatutSiPending(txRef, 'failed');
-      console.log(`❌ Paiement ${ref} échoué`);
-      return res.status(200).json({ received: true, credited: false });
+    const userDoc = await db.collection('users').doc(uid).get();
+    const u = userDoc.exists ? userDoc.data() : {};
+    const prenom = String(u.prenom || 'Client').replace(/"/g, '');
+    const nom = String(u.nom || 'Client').replace(/"/g, '');
+
+    const externalRef = genererReference('TP');
+    const txRef = db.collection('transactions').doc(externalRef);
+
+    // On enregistre AVANT d'appeler DigitalPaye : le webhook trouvera toujours la ligne
+    await txRef.set({
+      userId: uid,
+      amount: montant,
+      frais,
+      montantNet,
+      operator: op,
+      phone: tel,
+      externalRef,
+      reference: externalRef,
+      sourceWalletId: sourceWalletId || null,
+      provider: 'digitalpaye',
+      status: 'pending',
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    const retour = `${BASE_URL}/api/paiement/retour?ref=${externalRef}`;
+    const r = await dp.collect({
+      amount: montant,
+      operatorCode: OP_CODES[op],
+      phone: tel,
+      otp: op === 'ORANGE' ? String(otp) : undefined,
+      externalRef,
+      firstName: prenom,
+      lastName: nom,
+      uid,
+      note: description || 'Rechargement TAPA Invest',
+      successUrl: op === 'WAVE' ? retour : undefined,
+      errorUrl: op === 'WAVE' ? retour : undefined,
+    });
+
+    const d = r.data || {};
+    const st = d.status && d.status.value;
+    if (d.reference) await txRef.update({ dpReference: d.reference });
+
+    // Refus immédiat (ex : OTP incorrect, solde insuffisant chez le client...)
+    if (!r.ok || st === 'failed') {
+      const msg = (d.status && d.status.failure_reason) || r.message || 'Paiement refusé';
+      await changerStatutSiPending(txRef, 'failed', { error: msg });
+      console.warn(`❌ Collect refusé ${externalRef}: ${msg}`);
+      return res.status(422).json({ error: msg });
     }
 
-    console.warn('⚠️ responsecode inattendu:', code);
-    res.status(200).json({ received: true, ignored: true });
+    // Orange peut répondre "successful" tout de suite
+    let confirme = false;
+    if (st === 'successful') {
+      const charged = d.amounts && d.amounts.charged;
+      if (charged !== undefined && Number(charged) !== montant) {
+        console.error(`🚨 Montant différent: ${charged} vs ${montant} (${externalRef})`);
+        await changerStatutSiPending(txRef, 'amount_mismatch');
+      } else {
+        await crediter(txRef);
+        confirme = true;
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      externalRef,
+      reference: externalRef,
+      checkoutUrl: d.wave_launch_url || null, // Wave uniquement
+      status: confirme ? 'success' : 'pending',
+      pending: !confirme,                     // MTN/Moov: valider sur le téléphone
+    });
   } catch (error) {
-    console.error('❌ Erreur notification Paiement Pro:', error);
-    res.status(500).json({ error: 'Erreur interne' });
+    console.error('❌ Erreur init paiement:', error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
 // ============================================
-// 3. RETOUR DU CLIENT -> redirige vers l'app (ne crédite JAMAIS rien)
+// 2. RETOUR DU CLIENT (Wave) -> redirige vers l'app. Ne crédite JAMAIS rien.
 // ============================================
 router.all('/paiement/retour', (req, res) => {
   const ref = String((req.query || {}).ref || '').replace(/[^A-Za-z0-9]/g, '');
@@ -303,3 +260,5 @@ border-radius:12px;font-weight:700;text-decoration:none}
 });
 
 module.exports = router;
+module.exports.crediter = crediter;
+module.exports.changerStatutSiPending = changerStatutSiPending;

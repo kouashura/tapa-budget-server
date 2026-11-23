@@ -27,7 +27,7 @@ const iso = (v) => (v && typeof v.toDate === 'function' ? v.toDate().toISOString
 router.get('/withdraws', async (req, res) => {
   try {
     const statut = String(req.query.status || 'pending_manual');
-    if (!['pending_manual', 'success', 'failed', 'all'].includes(statut)) {
+    if (!['pending_manual', 'processing', 'success', 'failed', 'all'].includes(statut)) {
       return res.status(400).json({ error: 'Statut invalide' });
     }
 
@@ -76,7 +76,7 @@ router.post('/withdraw/:requestId/complete', async (req, res) => {
       const snap = await t.get(requestRef);
       if (!snap.exists) throw new ErreurMetier(404, 'Demande non trouvée');
       const w = snap.data();
-      if (w.status !== 'pending_manual') {
+      if (w.status !== 'pending_manual' && w.status !== 'processing') {
         throw new ErreurMetier(400, 'Cette demande a déjà été traitée');
       }
 

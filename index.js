@@ -32,13 +32,16 @@ admin.initializeApp({
 });
 console.log('✅ Firebase Admin initialisé');
 
-app.use(express.json());
+app.use(express.json({
+  verify: (req, _res, buf) => { req.rawBody = buf; }, // nécessaire à la signature du webhook DigitalPaye
+}));
 app.use(express.urlencoded({ extended: true }));
 app.set("trust proxy", 1);
 
 const withdrawRoute = require('./routes/withdraw');
 const adminWithdrawRoute = require('./routes/admin_withdraw');
 const paiementRoute = require('./routes/paiement');
+const webhookDigitalpayeRoute = require('./routes/webhook_digitalpaye');
 const payoutRoute = require('./routes/payout');
 const adminRoute = require('./routes/admin');
 const smsRoute = require('./routes/sms');
@@ -48,6 +51,7 @@ const requireAdmin = require('./middleware/requireAdmin');
 app.use('/api', withdrawRoute);
 app.use('/api/admin', requireAdmin, adminWithdrawRoute);
 app.use('/api', paiementRoute);
+app.use('/api', webhookDigitalpayeRoute); // POST /api/webhook/digitalpaye
 // app.use('/api', payoutRoute); // DÉSACTIVÉ : retrait automatique sans authentification
 app.use('/api/admin', requireAdmin, adminRoute);
 app.use('/api', smsRoute);

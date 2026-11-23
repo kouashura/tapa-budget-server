@@ -1,48 +1,50 @@
 // server/services/payout_service.js
+// Envoi d'argent (payout) via DigitalPaye : POST /v1/payouts
+const dp = require('./digitalpaye');
 
-let dp = null;
-
-function getDigitalPaye() {
-  if (dp) return dp;
-
-  const publicKey = process.env.DP_PUBLIC_KEY;
-  const secret = process.env.DP_SECRET;
-
-  if (!publicKey || !secret) {
-    throw new Error('DigitalPaye: DP_PUBLIC_KEY et DP_SECRET doivent être configurés dans les variables d\'environnement de Render.');
-  }
-
-  const DigitalPaye = require('digitalpaye-node');
-  dp = new DigitalPaye({ publicKey, secret });
-  return dp;
-}
-
-async function createPayout(amount, phone, operator, userId) {
+/**
+ * @param {number} amount
+ * @param {string} phone
+ * @param {string} operator  ORANGE_MONEY_CI | MTN_MONEY_CI | MOOV_MONEY_CI | WAVE_MONEY_CI
+ * @param {string} userId
+ * @param {string} [externalRef] référence imposée (sinon générée)
+ */
+async function createPayout(amount, phone, operator, userId, externalRef) {
+  const ref = externalRef || `WITHDRAW_${userId}_${Date.now()}`;
   try {
-    const client = getDigitalPaye(); // Lève une erreur claire si les clés manquent
-    const externalRef = `WITHDRAW_${userId}_${Date.now()}`;
-
-    const payout = await client.payouts.create({
-      amount: amount,
-      currency: 'XOF',
-      country: 'CI', // ✅ Pays requis par DigitalPaye
-      operator_code: operator,
-      external_ref: externalRef,
-      recipient_phone: phone,
+    const r = await dp.payout({
+      amount,
+      operatorCode: operator,
+      phone,
+      externalRef: ref,
+      note: 'Retrait TAPA Invest',
     });
 
-    console.log('✅ Payout initié:', payout);
+    if (!r.ok) {
+      console.error('❌ Payout refusé:', r.httpStatus, r.message);
+      return {
+        success: false,
+        httpStatus: r.httpStatus,   // 0 = pas de réponse (résultat inconnu)
+        error: r.message || `Erreur DigitalPaye (${r.httpStatus})`,
+        externalRef: ref,
+      };
+    }
+
+    const p = r.data || {};
+    const st = typeof p.status === 'object' ? p.status?.value : p.status;
+    console.log('✅ Payout accepté:', p.reference, st);
     return {
       success: true,
-      reference: payout.data?.reference || payout.reference || 'N/A', // ✅ Référence correcte
-      externalRef: externalRef,
+      httpStatus: r.httpStatus,
+      reference: p.reference || null,
+      externalRef: ref,
+      status: st || null,
+      fee: p.fee ?? null,
+      netSent: p.net_sent ?? null,
     };
   } catch (error) {
     console.error('❌ Erreur Payout:', error.message);
-    return {
-      success: false,
-      error: error.message,
-    };
+    return { success: false, httpStatus: 0, error: error.message, externalRef: ref };
   }
 }
 
