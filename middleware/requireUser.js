@@ -13,6 +13,7 @@ module.exports = async function requireUser(req, res, next) {
     req.user = await admin.auth().verifyIdToken(m[1]);
     next();
   } catch (e) {
+    console.error('requireUser:', e.code, e.message);
     res.status(401).json({ error: 'Session invalide, reconnecte-toi' });
   }
 };
