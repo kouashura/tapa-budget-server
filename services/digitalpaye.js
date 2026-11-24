@@ -76,17 +76,32 @@ exports.collect = ({ amount, operatorCode, phone, otp, externalRef, firstName, l
   return safe(() => call('post', '/v1/collect', body));
 };
 
-exports.payout = ({ amount, operatorCode, phone, externalRef, note }) =>
-  safe(() =>
-    call('post', '/v1/payouts', {
-      amount,
-      currency: 'XOF',
-      operator_code: operatorCode,
-      external_ref: externalRef,
-      payer: { phone: cleanPhone(phone), phone_prefix: '+225' },
-      note: note || 'Retrait TAPA Invest',
-    })
-  );
+const SHORT_CODES = {
+  ORANGE_MONEY_CI: 'ORANGE',
+  MTN_MONEY_CI: 'MTN',
+  WAVE_MONEY_CI: 'WAVE',
+  MOOV_MONEY_CI: 'FLOOZ',
+};
+
+exports.payout = async ({ amount, operatorCode, phone, externalRef, note }) => {
+  const body = (code) => ({
+    amount,
+    currency: 'XOF',
+    operator_code: code,
+    external_ref: externalRef,
+    payer: { phone: cleanPhone(phone), phone_prefix: '+225' },
+    note: note || 'Retrait TAPA Invest',
+  });
+
+  let r = await safe(() => call('post', '/v1/payouts', body(operatorCode)));
+
+  // Si le code long est refusé (rien n'est envoyé), on réessaie avec le code court
+  if (!r.ok && /operator_code/i.test(r.message || '') && SHORT_CODES[operatorCode]) {
+    console.warn(`⚠️ operator_code ${operatorCode} refusé, nouvel essai avec ${SHORT_CODES[operatorCode]}`);
+    r = await safe(() => call('post', '/v1/payouts', body(SHORT_CODES[operatorCode])));
+  }
+  return r;
+};
 
 exports.collectDetail = (reference) => safe(() => call('get', `/v1/collect/${reference}`));
 exports.me = () => safe(() => call('get', '/v1/auth/me'));

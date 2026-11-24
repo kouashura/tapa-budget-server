@@ -44,10 +44,10 @@ function calculerNet(montant, op) {
 }
 
 const OP_CODES = {
-  ORANGE: 'ORANGE_MONEY_CI',
-  MTN: 'MTN_MONEY_CI',
-  WAVE: 'WAVE_MONEY_CI',
-  MOOV: 'MOOV_MONEY_CI', // code non documenté : à confirmer auprès de DigitalPaye
+  ORANGE: 'ORANGE', // OTP 4 chiffres requis
+  MTN: 'MTN',       // direct (validation sur le téléphone)
+  WAVE: 'WAVE',     // redirection vers wave_launch_url
+  MOOV: 'FLOOZ',    // Moov Flooz
 };
 
 function normaliserOperateur(op) {
