@@ -19,14 +19,28 @@ const FieldValue = admin.firestore.FieldValue;
 
 const BASE_URL = process.env.PUBLIC_BASE_URL || 'https://tapa-budget-server.onrender.com';
 
-// Frais d'encaissement TAPA (inchangé : même calcul que l'affichage de l'app)
-const FRAIS_POURCENT = Number(process.env.ENCAISSEMENT_FRAIS_POURCENT || 5);
-const FRAIS_FIXE = Number(process.env.ENCAISSEMENT_FRAIS_FIXE || 0);
+// Frais d'encaissement = frais RÉELS DigitalPaye (grille du compte), par opérateur.
+// Le client est crédité de : montant - frais  =>  TAPA ne perd rien.
+// Taux en points de base (1,8 % = 180) : pas d'erreur d'arrondi des décimaux.
+const FRAIS_OPERATEURS = {
+  WAVE:   { bp: 180, fixe: 100 }, // 1,8 % + 100 FCFA
+  ORANGE: { bp: 250, fixe: 0 },   // 2,5 %
+  MTN:    { bp: 200, fixe: 0 },   // 2 %
+  MOOV:   { bp: 250, fixe: 0 },   // 2,5 %
+};
+// Marge TAPA optionnelle en points de base (ex: 50 = +0,5 %). Défaut : aucune.
+// ⚠️ Si tu l'utilises, les taux de l'app (wallet_screen.dart) doivent être augmentés pareil.
+const MARGE_BP = Number(process.env.ENCAISSEMENT_MARGE_BP || 0);
 const MONTANT_MIN = Number(process.env.ENCAISSEMENT_MIN || 500);
 const MONTANT_MAX = 2000000; // plafond DigitalPaye
 
-function calculerNet(montant) {
-  return Math.round(montant - (montant * (FRAIS_POURCENT / 100) + FRAIS_FIXE));
+function calculerFrais(montant, op) {
+  const f = FRAIS_OPERATEURS[op] || FRAIS_OPERATEURS.ORANGE;
+  return Math.round((montant * (f.bp + MARGE_BP)) / 10000) + f.fixe;
+}
+
+function calculerNet(montant, op) {
+  return montant - calculerFrais(montant, op);
 }
 
 const OP_CODES = {
@@ -139,7 +153,7 @@ router.post('/paiement/init', requireUser, async (req, res) => {
       return res.status(400).json({ error: 'Code OTP Orange (4 chiffres) requis' });
     }
 
-    const montantNet = calculerNet(montant);
+    const montantNet = calculerNet(montant, op);
     const frais = montant - montantNet;
     if (montantNet <= 0) return res.status(400).json({ error: 'Montant trop faible' });
 
