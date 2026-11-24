@@ -129,3 +129,6 @@ exports.payout = async ({ amount, operatorCode, phone, externalRef, note }) => {
 
 exports.collectDetail = (reference) => safe(() => call('get', `/v1/collect/${reference}`));
 exports.me = () => safe(() => call('get', '/v1/auth/me'));
+
+// Liste des collectes récentes (pour retrouver une transaction par external_ref)
+exports.listCollects = () => safe(() => call('get', '/v1/collects?page=1&limit=100&type=collect'));
