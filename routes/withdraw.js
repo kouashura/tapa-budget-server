@@ -24,8 +24,18 @@ const AUTO = String(process.env.RETRAIT_AUTO || 'true').toLowerCase() !== 'false
 const MIN = Number(process.env.RETRAIT_MIN || 500);
 const MAX = Number(process.env.RETRAIT_MAX || 500000);
 const MAX_EN_ATTENTE = Number(process.env.RETRAIT_MAX_EN_ATTENTE || 3);
-const FRAIS_POURCENT = Number(process.env.RETRAIT_FRAIS_POURCENT || 0);
-const FRAIS_FIXE = Number(process.env.RETRAIT_FRAIS_FIXE || 0);
+// Frais de retrait = frais RÉELS DigitalPaye (grille du compte), facturés au client.
+// Le wallet DigitalPaye est débité de montant + frais : l'app doit faire pareil.
+const FRAIS_RETRAIT = {
+  WAVE_MONEY_CI:   { bp: 150, fixe: 100 }, // 1,5 % + 100 FCFA
+  ORANGE_MONEY_CI: { bp: 0,   fixe: 250 },
+  MTN_MONEY_CI:    { bp: 0,   fixe: 250 },
+  MOOV_MONEY_CI:   { bp: 0,   fixe: 250 },
+};
+function calculerFraisRetrait(montant, op) {
+  const f = FRAIS_RETRAIT[op] || { bp: 150, fixe: 250 };
+  return Math.round((montant * f.bp) / 10000) + f.fixe;
+}
 const OPERATEURS = ['ORANGE_MONEY_CI', 'MTN_MONEY_CI', 'MOOV_MONEY_CI', 'WAVE_MONEY_CI'];
 
 // Refus "définitifs" de DigitalPaye : l'argent n'est PAS parti -> remboursement sûr
@@ -125,7 +135,7 @@ router.post('/withdraw', requireUser, async (req, res) => {
       return res.status(400).json({ error: 'Numéro invalide (10 chiffres, ex: 0711958528)' });
     }
 
-    const frais = Math.round((amount * FRAIS_POURCENT) / 100) + FRAIS_FIXE;
+    const frais = calculerFraisRetrait(amount, operator);
     const totalDebite = amount + frais;
 
     const walletRef = db.collection('wallets').doc(uid);
@@ -138,7 +148,9 @@ router.post('/withdraw', requireUser, async (req, res) => {
       if (!walletSnap.exists) throw new ErreurMetier(404, 'Wallet non trouvé');
 
       const solde = Number(walletSnap.data().solde || 0);
-      if (solde < totalDebite) throw new ErreurMetier(400, 'Solde insuffisant');
+      if (solde < totalDebite) {
+        throw new ErreurMetier(400, `Solde insuffisant (retrait ${amount} + frais ${frais} = ${totalDebite} FCFA)`);
+      }
 
       const [a, b] = await Promise.all([
         t.get(db.collection('withdraw_requests').where('userId', '==', uid).where('status', '==', 'pending_manual')),
