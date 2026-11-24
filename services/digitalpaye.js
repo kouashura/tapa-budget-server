@@ -106,23 +106,27 @@ const SHORT_CODES = {
   WAVE_MONEY_CI: 'WAVE',
   MOOV_MONEY_CI: 'FLOOZ',
 };
+const LONG_CODES = Object.fromEntries(Object.entries(SHORT_CODES).map(([l, c]) => [c, l]));
 
 exports.payout = async ({ amount, operatorCode, phone, externalRef, note }) => {
+  const court = SHORT_CODES[operatorCode] || operatorCode;
+  const long = LONG_CODES[court] || operatorCode;
   const body = (code) => ({
     amount,
     currency: 'XOF',
+    country: 'CI',                      // requis par DigitalPaye
     operator_code: code,
     external_ref: externalRef,
     payer: { phone: cleanPhone(phone), phone_prefix: '+225' },
     note: note || 'Retrait TAPA Invest',
   });
 
-  let r = await safe(() => call('post', '/v1/payouts', body(operatorCode)));
+  let r = await safe(() => call('post', '/v1/payouts', body(court)));
 
-  // Si le code long est refusé (rien n'est envoyé), on réessaie avec le code court
-  if (!r.ok && /operator_code/i.test(r.message || '') && SHORT_CODES[operatorCode]) {
-    console.warn(`⚠️ operator_code ${operatorCode} refusé, nouvel essai avec ${SHORT_CODES[operatorCode]}`);
-    r = await safe(() => call('post', '/v1/payouts', body(SHORT_CODES[operatorCode])));
+  // Code refusé (rien n'est envoyé) : nouvel essai avec l'autre format
+  if (!r.ok && /operator_code/i.test(r.message || '') && long !== court) {
+    console.warn(`⚠️ operator_code ${court} refusé, nouvel essai avec ${long}`);
+    r = await safe(() => call('post', '/v1/payouts', body(long)));
   }
   return r;
 };
