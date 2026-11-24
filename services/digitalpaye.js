@@ -114,19 +114,22 @@ exports.payout = async ({ amount, operatorCode, phone, externalRef, note }) => {
   const body = (code) => ({
     amount,
     currency: 'XOF',
-    country: 'CI',                      // requis par DigitalPaye
+    country: 'CI',
     operator_code: code,
     external_ref: externalRef,
     payer: { phone: cleanPhone(phone), phone_prefix: '+225' },
     note: note || 'Retrait TAPA Invest',
   });
+  const log = (code, r) =>
+    console.log(`[payout] envoyé operator_code=${JSON.stringify(code)} (reçu "${operatorCode}") -> HTTP ${r.httpStatus} | ${r.message} | ${JSON.stringify(r.data || {}).slice(0, 300)}`);
 
   let r = await safe(() => call('post', '/v1/payouts', body(court)));
+  log(court, r);
 
-  // Code refusé (rien n'est envoyé) : nouvel essai avec l'autre format
   if (!r.ok && /operator_code/i.test(r.message || '') && long !== court) {
     console.warn(`⚠️ operator_code ${court} refusé, nouvel essai avec ${long}`);
     r = await safe(() => call('post', '/v1/payouts', body(long)));
+    log(long, r);
   }
   return r;
 };
