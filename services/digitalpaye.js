@@ -11,12 +11,32 @@ async function getToken() {
   const secret = process.env.DP_SECRET;
   if (!pub || !secret) throw new Error('DP_PUBLIC_KEY / DP_SECRET manquants');
   const creds = Buffer.from(`${pub}:${secret}`).toString('base64');
-  const { data } = await axios.post(`${BASE}/v1/auth/token`, null, {
-    headers: { Authorization: `Basic ${creds}` },
-    timeout: 15000,
-  });
-  cache = { token: data.data.access_token, exp: Date.now() + 9 * 60 * 1000 }; // JWT valable 10 min
-  return cache.token;
+
+  let derniere;
+  for (let essai = 1; essai <= 2; essai++) {
+    try {
+      const { data } = await axios.post(`${BASE}/v1/auth/token`, null, {
+        headers: { Authorization: `Basic ${creds}` },
+        timeout: 20000,
+      });
+      cache = { token: data.data.access_token, exp: Date.now() + 9 * 60 * 1000 }; // JWT valable 10 min
+      return cache.token;
+    } catch (e) {
+      derniere = e;
+      const st = e.response && e.response.status;
+      console.warn(`⚠️ Auth DigitalPaye essai ${essai}/2 : ${st || ''} ${e.message}`);
+      if (st && st < 500) break; // identifiants refusés, clé expirée... : inutile de réessayer
+    }
+  }
+  const st = derniere && derniere.response && derniere.response.status;
+  const err = new Error(
+    st && st < 500
+      ? (derniere.response.data && derniere.response.data.message) || 'Authentification DigitalPaye refusée'
+      : 'Service de paiement momentanément indisponible. Réessaie dans un instant.'
+  );
+  err.dpAuthFailed = true; // rien n'a été envoyé à DigitalPaye
+  err.httpStatus = st || 0;
+  throw err;
 }
 
 async function call(method, path, body) {
@@ -30,12 +50,16 @@ async function call(method, path, body) {
   });
 }
 
-// Ne lève jamais sur un 4xx : { ok, httpStatus, data, message }
+// Ne lève jamais sur un 4xx : { ok, httpStatus, data, message, notSent? }
 async function safe(fn) {
   try {
     const r = await fn();
     return { ok: true, httpStatus: r.status, data: r.data?.data || r.data, message: r.data?.message };
   } catch (e) {
+    if (e.dpAuthFailed) {
+      console.error('❌ Auth DigitalPaye impossible :', e.message);
+      return { ok: false, httpStatus: e.httpStatus || 0, notSent: true, data: null, message: e.message };
+    }
     const body = e.response?.data;
     return {
       ok: false,

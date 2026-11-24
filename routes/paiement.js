@@ -213,6 +213,21 @@ router.post('/paiement/init', requireUser, async (req, res) => {
     const st = d.status && d.status.value;
     if (d.reference) await txRef.update({ dpReference: d.reference });
 
+    // DigitalPaye injoignable AVANT l'envoi : rien n'est parti, on peut réessayer sans risque
+    if (!r.ok && r.notSent) {
+      await changerStatutSiPending(txRef, 'init_failed', { error: r.message });
+      return res.status(503).json({ error: r.message });
+    }
+    // Aucune réponse APRÈS l'envoi : résultat inconnu. On garde 'pending' (le webhook tranchera),
+    // sinon un paiement abouti chez DigitalPaye ne serait jamais crédité.
+    if (!r.ok && r.httpStatus === 0) {
+      console.error(`⚠️ Collect ${externalRef} sans réponse : laissé en pending (${r.message})`);
+      return res.status(200).json({
+        success: true, externalRef, reference: externalRef,
+        checkoutUrl: null, status: 'pending', pending: true,
+      });
+    }
+
     // Refus immédiat (ex : OTP incorrect, solde insuffisant chez le client...)
     if (!r.ok || st === 'failed') {
       const msg = (d.status && d.status.failure_reason) || r.message || 'Paiement refusé';
