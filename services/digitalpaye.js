@@ -106,31 +106,24 @@ const SHORT_CODES = {
   WAVE_MONEY_CI: 'WAVE',
   MOOV_MONEY_CI: 'FLOOZ',
 };
-const LONG_CODES = Object.fromEntries(Object.entries(SHORT_CODES).map(([l, c]) => [c, l]));
 
+// Codes acceptés par l'API : ORANGE, MTN, FLOOZ, WAVE (confirmé par DigitalPaye).
+// Le destinataire se passe dans recipient.phone (confirmé par le message d'erreur de l'API).
 exports.payout = async ({ amount, operatorCode, phone, externalRef, note }) => {
-  const court = SHORT_CODES[operatorCode] || operatorCode;
-  const long = LONG_CODES[court] || operatorCode;
-  const body = (code) => ({
+  const code = SHORT_CODES[operatorCode] || operatorCode;
+  const tel = cleanPhone(phone);
+  const body = {
     amount,
     currency: 'XOF',
     country: 'CI',
     operator_code: code,
     external_ref: externalRef,
-    payer: { phone: cleanPhone(phone), phone_prefix: '+225' },
+    recipient: { phone: tel, phone_prefix: '+225' },
+    recipient_phone: tel, // nom utilisé par l'ancienne intégration, au cas où
     note: note || 'Retrait TAPA Invest',
-  });
-  const log = (code, r) =>
-    console.log(`[payout] envoyé operator_code=${JSON.stringify(code)} (reçu "${operatorCode}") -> HTTP ${r.httpStatus} | ${r.message} | ${JSON.stringify(r.data || {}).slice(0, 300)}`);
-
-  let r = await safe(() => call('post', '/v1/payouts', body(court)));
-  log(court, r);
-
-  if (!r.ok && /operator_code/i.test(r.message || '') && long !== court) {
-    console.warn(`⚠️ operator_code ${court} refusé, nouvel essai avec ${long}`);
-    r = await safe(() => call('post', '/v1/payouts', body(long)));
-    log(long, r);
-  }
+  };
+  const r = await safe(() => call('post', '/v1/payouts', body));
+  console.log(`[payout] operator_code=${JSON.stringify(code)} -> HTTP ${r.httpStatus} | ${r.message} | ${JSON.stringify(r.data || {}).slice(0, 300)}`);
   return r;
 };
 
