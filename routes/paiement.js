@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const admin = require('firebase-admin');
 const requireUser = require('../middleware/requireUser');
 const dp = require('../services/digitalpaye');
+const { activerSouscription } = require('../services/souscriptions');
 
 const router = express.Router();
 const db = admin.firestore();
@@ -291,3 +292,90 @@ border-radius:12px;font-weight:700;text-decoration:none}
 module.exports = router;
 module.exports.crediter = crediter;
 module.exports.changerStatutSiPending = changerStatutSiPending;
+
+// ✅ Encaissement assurance : même chemin que /paiement/init, sans crédit de portefeuille
+async function initierEncaissement(uid, params, txExtra = {}) {
+  const { amount, operator, phone, description, otp } = params;
+  try {
+    const montant = Math.round(Number(amount));
+    if (!Number.isFinite(montant) || montant < MONTANT_MIN || montant > MONTANT_MAX) {
+      return { code: 400, body: { error: 'Montant invalide' } };
+    }
+    const op = normaliserOperateur(operator);
+    if (!op) return { code: 400, body: { error: 'Opérateur invalide' } };
+    if (op === 'ORANGE' && !/^\d{4}$/.test(String(otp || ''))) {
+      return { code: 400, body: { error: 'Code OTP Orange (4 chiffres) requis' } };
+    }
+    const tel = normaliserTelephone(phone);
+    if (tel.length < 8) return { code: 400, body: { error: 'Numéro de téléphone invalide' } };
+
+    const frais = calculerFrais(montant, op);
+    const userDoc = await db.collection('users').doc(uid).get();
+    const u = userDoc.exists ? userDoc.data() : {};
+    const prenom = String(u.prenom || 'Client').replace(/"/g, '');
+    const nom = String(u.nom || 'Client').replace(/"/g, '');
+
+    const externalRef = genererReference('TP');
+    const txRef = db.collection('transactions').doc(externalRef);
+    await txRef.set({
+      userId: uid, amount: montant, frais, montantNet: montant - frais, operator: op, phone: tel,
+      externalRef, reference: externalRef, sourceWalletId: null,
+      provider: 'digitalpaye', status: 'pending',
+      createdAt: FieldValue.serverTimestamp(),
+      ...txExtra,
+    });
+
+    const retour = `${BASE_URL}/api/paiement/retour?ref=${externalRef}`;
+    const r = await dp.collect({
+      amount: montant, operatorCode: OP_CODES[op], phone: tel,
+      otp: op === 'ORANGE' ? String(otp) : undefined,
+      externalRef, firstName: prenom, lastName: nom, uid,
+      note: description || 'Assurance auto',
+      successUrl: op === 'WAVE' ? retour : undefined,
+      errorUrl: op === 'WAVE' ? retour : undefined,
+    });
+
+    const d = r.data || {};
+    const st = d.status && d.status.value;
+    if (d.reference) await txRef.update({ dpReference: d.reference });
+
+    if (!r.ok && r.notSent) {
+      await changerStatutSiPending(txRef, 'init_failed', { error: r.message });
+      return { code: 503, body: { error: r.message } };
+    }
+    if (!r.ok && r.httpStatus === 0) {
+      return { code: 200, body: { success: true, externalRef, reference: externalRef, checkoutUrl: null, status: 'pending', pending: true } };
+    }
+    if (!r.ok || st === 'failed') {
+      const msg = (d.status && d.status.failure_reason) || r.message || 'Paiement refusé';
+      await changerStatutSiPending(txRef, 'failed', { error: msg });
+      return { code: 422, body: { error: msg } };
+    }
+
+    let confirme = false;
+    if (st === 'successful') {
+      const charged = d.amounts && d.amounts.charged;
+      if (charged !== undefined && Number(charged) !== montant) {
+        await changerStatutSiPending(txRef, 'amount_mismatch');
+      } else if (txExtra.souscriptionRef) {
+        confirme = await activerSouscription(txRef);
+      } else {
+        await crediter(txRef);
+        confirme = true;
+      }
+    }
+    return {
+      code: 200,
+      body: {
+        success: true, externalRef, reference: externalRef,
+        checkoutUrl: d.wave_launch_url || null,
+        status: confirme ? 'success' : 'pending', pending: !confirme,
+      },
+    };
+  } catch (error) {
+    console.error('❌ Erreur init encaissement:', error.message);
+    return { code: 500, body: { error: error.message } };
+  }
+}
+
+module.exports.initierEncaissement = initierEncaissement;

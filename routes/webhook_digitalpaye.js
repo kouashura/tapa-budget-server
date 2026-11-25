@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const admin = require('firebase-admin');
 const dp = require('../services/digitalpaye');
 const { crediter, changerStatutSiPending } = require('./paiement');
+const { activerSouscription, echouerSouscription } = require('../services/souscriptions');
 
 const router = express.Router();
 const db = admin.firestore();
@@ -73,10 +74,11 @@ async function traiterEncaissement(event, body) {
       await changerStatutSiPending(txRef, 'amount_mismatch');
       return { code: 200 };
     }
-    const ok = await crediter(txRef);
+    const ok = tx.souscriptionRef ? await activerSouscription(txRef) : await crediter(txRef);
     console.log(ok ? `✅ Paiement ${externalRef} crédité` : `ℹ️ Paiement ${externalRef} déjà traité`);
   } else if (status === 'failed') {
     await changerStatutSiPending(txRef, 'failed');
+    if (tx.souscriptionRef) await echouerSouscription(tx.souscriptionRef);
     console.log(`❌ Paiement ${externalRef} échoué`);
   }
   return { code: 200 };
