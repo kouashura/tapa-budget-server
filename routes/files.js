@@ -112,4 +112,16 @@ router.get('/admin/url', requireAdmin, (req, res) => {
   return lienTemporaire(path, res);
 });
 
+// Utilise par assurance.js : le fichier existe-t-il dans le bucket ?
+router.fichierExiste = async function fichierExiste(path) {
+  const b = bucket();
+  if (!b) throw Object.assign(new Error('Stockage non configure'), { status: 503 });
+  const i = path.lastIndexOf('/');
+  const dossier = path.slice(0, i);
+  const nom = path.slice(i + 1);
+  const { data, error } = await b.list(dossier, { search: nom, limit: 20 });
+  if (error) throw error;
+  return (data || []).some((f) => f.name === nom);
+};
+
 module.exports = router;

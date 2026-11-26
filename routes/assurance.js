@@ -138,7 +138,7 @@ router.post('/assurance/admin/:ref/publier', requireAdmin, async (req, res) => {
     if (!numeroPolice || isNaN(debut) || isNaN(fin) || fin <= debut) return res.status(400).json({ error: 'Police et dates requises' });
 
     const path = `attestations/${d.s.userId}/${d.s.reference}.pdf`;
-    const [existe] = await admin.storage().bucket().file(path).exists();
+    const existe = await require('./files').fichierExiste(path);
     if (!existe) return res.status(400).json({ error: 'PDF introuvable : téléversez-le avant de publier' });
 
     await d.sRef.update({
