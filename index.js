@@ -48,11 +48,13 @@ const adminRoute = require('./routes/admin');
 const smsRoute = require('./routes/sms');
 const emailAuthRoute = require("./routes/emailAuth");
 const requireAdmin = require('./middleware/requireAdmin');
+const filesRoute = require('./routes/files');
 
 app.use('/api', withdrawRoute);
 app.use('/api/admin', requireAdmin, adminWithdrawRoute);
 app.use('/api', paiementRoute);
 app.use('/api', assuranceRoute);
+app.use('/api/files', filesRoute); // stockage privé (Supabase)
 app.use('/api', webhookDigitalpayeRoute); // POST /api/webhook/digitalpaye
 // app.use('/api', payoutRoute); // DÉSACTIVÉ : retrait automatique sans authentification
 app.use('/api/admin', requireAdmin, adminRoute);
