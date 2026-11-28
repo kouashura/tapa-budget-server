@@ -7,3 +7,5 @@ serviceAccountKey_OLD.json
 key_oneline.json
 sa.b64
 *.b64
+.DS_Store
+*.bak
